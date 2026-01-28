@@ -439,13 +439,13 @@ class _PagoScreen2State extends State<PagoScreen2>
       String horaSalida = '';
       String lugarSalida = '';
 
-      // Intentar en colección 'buses'
+      // Intentar en colección 'buses_tulcan_salida'
       var busDoc = await db
           .collection('buses_la_esperanza_salida')
           .doc(widget.busId)
           .get();
 
-      // Si no existe, intentar en 'buses1'
+      // Si no existe, intentar en 'buses_la_esperanza_salida'
       if (!busDoc.exists) {
         busDoc = await db
             .collection('buses_la_esperanza_salida')
@@ -457,7 +457,9 @@ class _PagoScreen2State extends State<PagoScreen2>
         final busData = busDoc.data();
         if (busData != null) {
           numeroBus = busData['numero']?.toString() ?? 'N/A';
-          fechaSalida = busData['fechaSalida']?.toString() ?? '';
+          fechaSalida = busData['fechaSalida']?.toString() ??
+              busData['fecha_salida']?.toString() ??
+              '';
           horaSalida = busData['horaSalida']?.toString() ??
               busData['hora_salida']?.toString() ??
               '';
@@ -465,6 +467,7 @@ class _PagoScreen2State extends State<PagoScreen2>
         }
       }
 
+      // ✅ CREAR NOTIFICACIÓN EN FIRESTORE (sin mostrar nada en pantalla)
       await db.collection('notificaciones').add({
         'userId': userIdFinal,
         'email': widget.userEmail,
@@ -498,7 +501,7 @@ class _PagoScreen2State extends State<PagoScreen2>
         'fechaCompra': FieldValue.serverTimestamp(),
       });
 
-      debugPrint('✅ Notificación creada exitosamente');
+      debugPrint('✅ Notificación creada silenciosamente en Firestore');
     } catch (e) {
       debugPrint('❌ Error al crear notificación: $e');
     }
@@ -761,18 +764,24 @@ class _PagoScreen2State extends State<PagoScreen2>
       debugPrint('✅ Asiento actualizado correctamente');
 
       // ==================== PASO 7: Crear notificación ====================
-      debugPrint('📝 Creando notificación...');
+      // ==================== PASO 7: Crear notificación ====================
+// ⚠️ NO crear notificación si es administrador
+      if (!_esAdministrador()) {
+        debugPrint('📝 Creando notificación...');
 
-      try {
-        await _crearNotificacionUsuario(
-          tipoNotificacion,
-          mensajeNotificacion,
-          reservaRef.id,
-          userIdFinal,
-        );
-        debugPrint('✅ Notificación creada');
-      } catch (e) {
-        debugPrint('⚠️ Error al crear notificación (no crítico): $e');
+        try {
+          await _crearNotificacionUsuario(
+            tipoNotificacion,
+            mensajeNotificacion,
+            reservaRef.id,
+            userIdFinal,
+          );
+          debugPrint('✅ Notificación creada');
+        } catch (e) {
+          debugPrint('⚠️ Error al crear notificación (no crítico): $e');
+        }
+      } else {
+        debugPrint('ℹ️ Usuario administrador - No se crea notificación');
       }
 
       // ==================== PASO 8: Finalizar y mostrar resultado ====================

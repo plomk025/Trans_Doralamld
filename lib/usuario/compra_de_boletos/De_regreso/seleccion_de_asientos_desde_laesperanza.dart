@@ -1,4 +1,3 @@
-import 'package:app2tesis/usuario/compra_de_boletos/De_ida/Datos_del_comprador.dart';
 import 'package:app2tesis/usuario/compra_de_boletos/De_regreso/Datos_del_comprador_desde_esperanza.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1904,7 +1903,7 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                             final resultado = await Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => DatosCompradorScreen(
+                                builder: (context) => DatosCompradorScreen2(
                                   busId: widget.busId,
                                   asientoSeleccionado: asientoSeleccionadoUI!,
                                   total: total,

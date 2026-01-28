@@ -445,10 +445,8 @@ class _PagoScreenState extends State<PagoScreen>
 
       // Si no existe, intentar en 'buses_la_esperanza_salida'
       if (!busDoc.exists) {
-        busDoc = await db
-            .collection('buses_la_esperanza_salida')
-            .doc(widget.busId)
-            .get();
+        busDoc =
+            await db.collection('buses_tulcan_salida').doc(widget.busId).get();
       }
 
       if (busDoc.exists) {

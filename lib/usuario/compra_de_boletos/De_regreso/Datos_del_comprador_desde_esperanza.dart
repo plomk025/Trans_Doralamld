@@ -1,4 +1,3 @@
-import 'package:app2tesis/usuario/compra_de_boletos/De_ida/pagos_desde_tulcan.dart';
 import 'package:app2tesis/usuario/compra_de_boletos/De_regreso/pagos_desde_esperanza.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -951,7 +950,7 @@ class _DatosCompradorScreen2State extends State<DatosCompradorScreen2>
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
-                      Icons.check_circle_rounded,
+                      Icons.person,
                       color: successGreen,
                       size: 28,
                     ),
