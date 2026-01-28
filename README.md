@@ -1,6 +1,6 @@
-# app2tesis
+# app móvil para Trans porte rural
 
-A new Flutter project.
+ Flutter project.
 
 ## Getting Started
 
