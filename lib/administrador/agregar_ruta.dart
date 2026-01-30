@@ -1,9 +1,8 @@
-import 'package:app2tesis/usuario/Pantallas_inicio/iniciarsesion.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// ==================== PANTALLA PRINCIPAL DE GESTIÓN ====================
+// ==================== PANTALLA PRINCIPAL DE GESTIÓN DE RUTAS ====================
 class AgregarNombrePage extends StatefulWidget {
   const AgregarNombrePage({super.key});
 
@@ -14,7 +13,6 @@ class AgregarNombrePage extends StatefulWidget {
 class _AgregarNombrePageState extends State<AgregarNombrePage> {
   // Paleta de colores moderna
   static const Color primaryBusBlue = Color(0xFF1E40AF);
-  static const Color accentOrange = Color(0xFFEA580C);
   static const Color darkNavy = Color(0xFF0F172A);
   static const Color roadGray = Color(0xFF334155);
   static const Color lightBg = Color(0xFFF1F5F9);
@@ -566,7 +564,6 @@ class _AgregarRutaScreenState extends State<AgregarRutaScreen> {
   String _origenSeleccionado = 'Tulcán';
 
   static const Color primaryBusBlue = Color(0xFF1E40AF);
-  static const Color accentOrange = Color(0xFFEA580C);
   static const Color darkNavy = Color(0xFF0F172A);
   static const Color lightBg = Color(0xFFF1F5F9);
   static const Color textGray = Color(0xFF475569);

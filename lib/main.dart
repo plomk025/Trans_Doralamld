@@ -23,26 +23,40 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   await showLocalNotification(message);
+  debugPrint('🔔 Notificación en segundo plano: ${message.messageId}');
 }
 
 Future<void> showLocalNotification(RemoteMessage message) async {
   final notification = message.notification;
+  final data = message.data;
+
   if (notification == null) return;
 
   final androidDetails = AndroidNotificationDetails(
     'general_channel',
     'Notificaciones',
+    channelDescription: 'Canal para notificaciones generales de la app',
     importance: Importance.max,
     priority: Priority.high,
     playSound: true,
     enableVibration: true,
     vibrationPattern: Int64List.fromList([0, 500, 200, 500]),
+    icon: '@mipmap/ic_launcher',
+    // Agregar un color de acento para Android
+    color: Colors.blue,
+    // Permitir expandir la notificación
+    styleInformation: BigTextStyleInformation(
+      notification.body ?? '',
+      contentTitle: notification.title,
+    ),
   );
 
   final iosDetails = DarwinNotificationDetails(
     presentAlert: true,
     presentBadge: true,
     presentSound: true,
+    // Agregar categorías si las usas
+    threadIdentifier: 'general',
   );
 
   await flutterLocalNotificationsPlugin.show(
@@ -50,6 +64,8 @@ Future<void> showLocalNotification(RemoteMessage message) async {
     notification.title,
     notification.body,
     NotificationDetails(android: androidDetails, iOS: iosDetails),
+    // Payload para manejar la interacción
+    payload: data['route'] ?? data['screen'] ?? '',
   );
 }
 
@@ -74,8 +90,25 @@ void main() async {
 
 // ==================== PERMISOS ====================
 Future<void> requestPermissions() async {
-  await Permission.notification.request();
-  await FirebaseMessaging.instance.requestPermission(
+  // Solicitar permisos de notificación del sistema
+  final notificationStatus = await Permission.notification.request();
+  debugPrint('📱 Permiso de notificaciones: $notificationStatus');
+
+  // Solicitar permisos de FCM
+  final settings = await FirebaseMessaging.instance.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+    announcement: false,
+    carPlay: false,
+    criticalAlert: false,
+    provisional: false,
+  );
+
+  debugPrint('🔔 Permisos FCM: ${settings.authorizationStatus}');
+
+  // Configurar opciones de presentación para iOS
+  await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
     alert: true,
     badge: true,
     sound: true,
@@ -85,12 +118,29 @@ Future<void> requestPermissions() async {
 // ==================== NOTIFICACIONES LOCALES ====================
 Future<void> initializeLocalNotifications() async {
   const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-  const iosSettings = DarwinInitializationSettings();
-
-  await flutterLocalNotificationsPlugin.initialize(
-    const InitializationSettings(android: androidSettings, iOS: iosSettings),
+  const iosSettings = DarwinInitializationSettings(
+    requestAlertPermission: true,
+    requestBadgePermission: true,
+    requestSoundPermission: true,
   );
 
+  await flutterLocalNotificationsPlugin.initialize(
+    const InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    ),
+    // Manejar cuando el usuario toca la notificación
+    onDidReceiveNotificationResponse: (NotificationResponse response) {
+      if (response.payload != null && response.payload!.isNotEmpty) {
+        debugPrint(
+            '🔔 Usuario tocó notificación con payload: ${response.payload}');
+        // Aquí puedes navegar a una pantalla específica
+        // navigatorKey.currentState?.pushNamed(response.payload!);
+      }
+    },
+  );
+
+  // Crear canal de notificaciones para Android
   final androidPlugin =
       flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
@@ -99,7 +149,22 @@ Future<void> initializeLocalNotifications() async {
     const AndroidNotificationChannel(
       'general_channel',
       'Notificaciones',
+      description: 'Canal para notificaciones generales de la app',
       importance: Importance.high,
+      playSound: true,
+      enableVibration: true,
+    ),
+  );
+
+  // Canal adicional para notificaciones importantes
+  await androidPlugin?.createNotificationChannel(
+    const AndroidNotificationChannel(
+      'important_channel',
+      'Notificaciones Importantes',
+      description: 'Canal para notificaciones prioritarias',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
     ),
   );
 }
@@ -109,7 +174,6 @@ class AppVersionService {
   static bool _isCheckingVersion = false;
 
   static Future<void> checkVersion(BuildContext context) async {
-    // Evitar múltiples llamadas simultáneas
     if (_isCheckingVersion) return;
     _isCheckingVersion = true;
 
@@ -137,7 +201,7 @@ class AppVersionService {
         return;
       }
 
-      if (obligatorio && isLower(localVersion, minVersion)) {
+      if (isLower(localVersion, minVersion)) {
         if (!context.mounted) {
           _isCheckingVersion = false;
           return;
@@ -145,9 +209,11 @@ class AppVersionService {
 
         showDialog(
           context: context,
-          barrierDismissible: false,
+          barrierDismissible:
+              !obligatorio, // Solo se puede cerrar si no es obligatorio
           builder: (_) => PopScope(
-            canPop: false,
+            canPop:
+                !obligatorio, // Solo se puede cerrar con back si no es obligatorio
             child: AlertDialog(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
@@ -160,10 +226,12 @@ class AppVersionService {
                     size: 28,
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Actualización Requerida',
-                      style: TextStyle(
+                      obligatorio
+                          ? 'Actualización Requerida'
+                          : 'Actualización Disponible',
+                      style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
@@ -176,7 +244,9 @@ class AppVersionService {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Para continuar usando la aplicación, necesitas actualizar a la versión $minVersion.',
+                    obligatorio
+                        ? 'Para continuar usando la aplicación, necesitas actualizar a la versión $minVersion.'
+                        : 'Hay una nueva versión $minVersion disponible. Te recomendamos actualizar para obtener las últimas mejoras.',
                     style: const TextStyle(fontSize: 16),
                   ),
                   const SizedBox(height: 16),
@@ -228,9 +298,11 @@ class AppVersionService {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Versión requerida',
-                                style: TextStyle(
+                              Text(
+                                obligatorio
+                                    ? 'Versión requerida'
+                                    : 'Nueva versión',
+                                style: const TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey,
                                 ),
@@ -252,6 +324,7 @@ class AppVersionService {
                 ],
               ),
               actions: [
+                // Botón de Descargar
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -284,6 +357,31 @@ class AppVersionService {
                     ),
                   ),
                 ),
+                // Botón Omitir - Solo visible cuando NO es obligatorio
+                if (!obligatorio) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Omitir por ahora',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -317,10 +415,18 @@ class AppVersionService {
 Future<void> saveFCMToken() async {
   try {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      debugPrint('⚠️ No hay usuario logueado, no se guarda token');
+      return;
+    }
 
     final token = await FirebaseMessaging.instance.getToken();
-    if (token == null) return;
+    if (token == null) {
+      debugPrint('⚠️ No se pudo obtener el token FCM');
+      return;
+    }
+
+    debugPrint('✅ Token FCM obtenido: ${token.substring(0, 20)}...');
 
     await FirebaseFirestore.instance
         .collection('usuarios_registrados')
@@ -329,9 +435,42 @@ Future<void> saveFCMToken() async {
       'email': user.email,
       'fcmToken': token,
       'lastTokenUpdate': FieldValue.serverTimestamp(),
+      'platform': Theme.of(WidgetsBinding
+              .instance.platformDispatcher.views.first as BuildContext)
+          .platform
+          .toString(),
     }, SetOptions(merge: true));
+
+    debugPrint('✅ Token FCM guardado en Firestore');
+
+    // Escuchar cuando el token se refresca
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+      debugPrint('🔄 Token FCM actualizado');
+      FirebaseFirestore.instance
+          .collection('usuarios_registrados')
+          .doc(user.uid)
+          .update({
+        'fcmToken': newToken,
+        'lastTokenUpdate': FieldValue.serverTimestamp(),
+      });
+    });
   } catch (e) {
-    debugPrint('Error al guardar token FCM: $e');
+    debugPrint('❌ Error al guardar token FCM: $e');
+  }
+}
+
+// ==================== SUSCRIBIR A TÓPICOS ====================
+Future<void> subscribeToTopics() async {
+  try {
+    // Suscribirse a un tópico general
+    await FirebaseMessaging.instance.subscribeToTopic('todos');
+    debugPrint('✅ Suscrito al tópico: todos');
+
+    // Puedes suscribirte a más tópicos según tu app
+    // await FirebaseMessaging.instance.subscribeToTopic('ofertas');
+    // await FirebaseMessaging.instance.subscribeToTopic('noticias');
+  } catch (e) {
+    debugPrint('❌ Error al suscribirse a tópicos: $e');
   }
 }
 
@@ -360,7 +499,6 @@ class MyApp extends StatelessWidget {
               secondary: Colors.blueAccent,
             ),
           ),
-          // DIRECTO A HomePage - YA NO USAMOS AuthWrapper
           home: const AppInitializer(),
         );
       },
@@ -369,7 +507,6 @@ class MyApp extends StatelessWidget {
 }
 
 // ==================== APP INITIALIZER ====================
-// Este widget solo inicializa la app y muestra HomePage
 class AppInitializer extends StatefulWidget {
   const AppInitializer({super.key});
 
@@ -390,7 +527,6 @@ class _AppInitializerState extends State<AppInitializer> {
     if (_initialized) return;
     _initialized = true;
 
-    // Esperar a que el widget esté completamente montado
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
 
@@ -399,16 +535,44 @@ class _AppInitializerState extends State<AppInitializer> {
 
       // Guardar token si hay usuario logueado
       await saveFCMToken();
+
+      // Suscribirse a tópicos generales
+      await subscribeToTopics();
+
+      // Manejar notificación que abrió la app (cuando estaba cerrada)
+      final initialMessage =
+          await FirebaseMessaging.instance.getInitialMessage();
+      if (initialMessage != null) {
+        debugPrint(
+            '🔔 App abierta desde notificación: ${initialMessage.messageId}');
+        _handleNotificationNavigation(initialMessage.data);
+      }
+
+      // Manejar notificación cuando la app está en segundo plano
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        debugPrint('🔔 App abierta desde segundo plano: ${message.messageId}');
+        _handleNotificationNavigation(message.data);
+      });
     });
 
     // Escuchar notificaciones en primer plano
-    FirebaseMessaging.onMessage.listen(showLocalNotification);
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      debugPrint('🔔 Notificación recibida en primer plano');
+      showLocalNotification(message);
+    });
+  }
+
+  void _handleNotificationNavigation(Map<String, dynamic> data) {
+    // Aquí puedes navegar a pantallas específicas según el payload
+    final route = data['route'] ?? data['screen'];
+    if (route != null && route.isNotEmpty) {
+      debugPrint('📍 Navegando a: $route');
+      // Navigator.of(context).pushNamed(route);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Importa tu HomePage desde el archivo correcto
-    // import 'usuario/Pantallas_inicio/home_page.dart' o donde esté
     return const HomePage();
   }
 }

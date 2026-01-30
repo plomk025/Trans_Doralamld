@@ -4,13 +4,15 @@ import 'package:app2tesis/administrador/ingresar_tipos_encomienda.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class ConfiguracionEncomiendas extends StatefulWidget {
   const ConfiguracionEncomiendas({super.key});
@@ -19,6 +21,9 @@ class ConfiguracionEncomiendas extends StatefulWidget {
   State<ConfiguracionEncomiendas> createState() =>
       _ConfiguracionEncomiendasState();
 }
+
+const String NOTIFICATIONS_SERVER_URL =
+    'https://tu-servidor-render.onrender.com';
 
 class _ConfiguracionEncomiendasState extends State<ConfiguracionEncomiendas>
     with SingleTickerProviderStateMixin {

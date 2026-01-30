@@ -57,8 +57,8 @@ class _HomePageState extends State<HomePage> {
 
   // 🔔 ==================== CONFIGURAR STREAM DE NOTIFICACIONES ====================
   // 🔔 ==================== CONFIGURAR STREAM DE NOTIFICACIONES ====================
-// 🔔 ==================== MÉTODO ACTUALIZADO PARA HOMEPAGE ====================
-// Reemplaza el método _setupNotificationsStream() en tu HomePage
+  // 🔔 ==================== MÉTODO ACTUALIZADO PARA HOMEPAGE ====================
+  // Reemplaza el método _setupNotificationsStream() en tu HomePage
 
   void _setupNotificationsStream() {
     final User? user = _auth.currentUser;
@@ -116,8 +116,8 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-// 🆕 ==================== AGREGAR ESTE MÉTODO NUEVO ====================
-// Agrega este método en tu clase _HomePageState
+  // 🆕 ==================== AGREGAR ESTE MÉTODO NUEVO ====================
+  // Agrega este método en tu clase _HomePageState
 
   String _sanitizeEmail(String email) {
     return email.replaceAll('.', '_').replaceAll('@', '_at_');
@@ -167,6 +167,7 @@ class _HomePageState extends State<HomePage> {
 
       if (token != null) {
         await _firestore.collection('usuarios_registrados').doc(user.uid).set({
+          'userId': user.uid, // 🆕 Agregado userId
           'email': user.email,
           'fcmToken': token,
           'lastTokenUpdate': FieldValue.serverTimestamp(),
@@ -174,6 +175,7 @@ class _HomePageState extends State<HomePage> {
 
         print('✅ FCM Token guardado correctamente');
         print('📱 Token: ${token.substring(0, 30)}...');
+        print('👤 UserId: ${user.uid}'); // 🆕 Log del userId
       } else {
         print('⚠️ No se pudo obtener el FCM token');
       }
@@ -890,6 +892,8 @@ class _HomePageState extends State<HomePage> {
                                   .collection('usuarios_registrados')
                                   .doc(userCredential.user!.uid)
                                   .set({
+                                'userId': userCredential
+                                    .user!.uid, // 🆕 Agregado userId
                                 'email': email,
                                 'role': 'admin',
                                 'createdAt': FieldValue.serverTimestamp(),
@@ -1197,6 +1201,7 @@ class _HomePageState extends State<HomePage> {
           .collection('usuarios_registrados')
           .doc(userCredential.user!.uid)
           .set({
+        'userId': userCredential.user!.uid, // 🆕 Agregado userId
         'email': email,
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -1206,7 +1211,7 @@ class _HomePageState extends State<HomePage> {
 
       if (!mounted) return;
 
-      Navigator.pop(context, true); // 👈 solo cerramos
+      Navigator.pop(context, true);
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
@@ -1241,6 +1246,7 @@ class _HomePageState extends State<HomePage> {
       final User? user = userCredential.user;
       if (user != null) {
         await _firestore.collection('usuarios_registrados').doc(user.uid).set({
+          'userId': user.uid, // 🆕 Agregado userId
           'email': user.email,
           'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -1307,6 +1313,7 @@ class _HomePageState extends State<HomePage> {
           .collection('usuarios_registrados')
           .doc(userCredential.user!.uid)
           .set({
+        'userId': userCredential.user!.uid, // 🆕 Agregado userId
         'email': _emailController.text.trim(),
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));

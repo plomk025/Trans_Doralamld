@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:http/http.dart' as http;
 
 class CrearNotificacionScreen extends StatefulWidget {
   const CrearNotificacionScreen({Key? key}) : super(key: key);
@@ -21,7 +25,7 @@ class _CrearNotificacionScreenState extends State<CrearNotificacionScreen>
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
 
-  // Paleta de colores (misma que MenuOpcionesScreen)
+  // Paleta de colores
   final Color primaryBusBlue = const Color(0xFF1E40AF);
   final Color accentOrange = const Color(0xFFEA580C);
   final Color darkNavy = const Color(0xFF0F172A);
@@ -30,7 +34,7 @@ class _CrearNotificacionScreenState extends State<CrearNotificacionScreen>
   final Color textGray = const Color(0xFF475569);
   final Color successGreen = const Color(0xFF059669);
   final Color mainRed = const Color(0xFF940016);
-  final Color errorColor = const Color(0xFFEF4444);
+  final Color errorColor = const Color(0xFFFE4444);
 
   @override
   void initState() {
@@ -47,7 +51,6 @@ class _CrearNotificacionScreenState extends State<CrearNotificacionScreen>
     );
     _fadeController.forward();
 
-    // Listener para actualizar la vista previa
     _mensajeController.addListener(() {
       setState(() {});
     });
@@ -60,6 +63,74 @@ class _CrearNotificacionScreenState extends State<CrearNotificacionScreen>
     super.dispose();
   }
 
+  /// 🔔 Envía notificación push a TODOS los usuarios (versión corregida)
+  Future<Map<String, dynamic>> _enviarNotificacionPushATodos({
+    required String titulo,
+    required String mensaje,
+  }) async {
+    try {
+      // ⚠️ IMPORTANTE: Cambia esta URL por la tuya de Render
+      const String baseUrl = 'https://notificaciones-1hoa.onrender.com';
+
+      print('📤 Enviando notificación a TODOS los usuarios...');
+      print('🔗 URL: $baseUrl/api/notifications/send-to-all');
+
+      final response = await http
+          .post(
+        Uri.parse('$baseUrl/api/notifications/send-to-all'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'title': titulo,
+          'body': mensaje,
+          'data': {
+            'tipo': 'anuncio_global',
+            'timestamp': DateTime.now().toIso8601String(),
+            'route': '/notificaciones', // Ruta opcional en tu app
+          },
+        }),
+      )
+          .timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw Exception('Timeout: El servidor no respondió a tiempo');
+        },
+      );
+
+      print('📱 Respuesta del servidor: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+
+        print('✅ Notificaciones enviadas exitosamente');
+        print('📊 Total usuarios: ${responseData['totalUsers']}');
+        print('✓ Exitosas: ${responseData['successCount']}');
+        print('✗ Fallidas: ${responseData['failureCount']}');
+
+        return {
+          'success': true,
+          'totalUsers': responseData['totalUsers'] ?? 0,
+          'successCount': responseData['successCount'] ?? 0,
+          'failureCount': responseData['failureCount'] ?? 0,
+        };
+      } else {
+        print('⚠️ Error del servidor: ${response.statusCode}');
+        print('📄 Respuesta: ${response.body}');
+
+        return {
+          'success': false,
+          'error': 'Error del servidor: ${response.statusCode}',
+        };
+      }
+    } catch (e) {
+      print('❌ Error al enviar notificaciones push: $e');
+
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
+    }
+  }
+
   Future<void> _enviarNotificacion() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -70,47 +141,94 @@ class _CrearNotificacionScreenState extends State<CrearNotificacionScreen>
     });
 
     try {
+      final mensaje = _mensajeController.text.trim();
+
+      print('📝 Iniciando envío de notificación global...');
+
+      // 1. Guardar en Firestore
       await db.collection('notificaciones').add({
-        'mensaje3': _mensajeController.text.trim(),
+        'mensaje3': mensaje,
         'asiento3': 'INFO',
         'fecha': FieldValue.serverTimestamp(),
-        'leida3': {}, // Mapa vacío - cada usuario tendrá su estado
+        'leida3': {},
       });
+
+      print('✅ Notificación guardada en Firestore');
+
+      // 2. Enviar notificaciones push a TODOS los usuarios
+      final resultado = await _enviarNotificacionPushATodos(
+        titulo: '📢 Anuncio Importante',
+        mensaje: mensaje,
+      );
 
       setState(() {
         _isLoading = false;
-        _enviado = true;
+        _enviado = resultado['success'] ?? false;
       });
 
-      // Limpiar el formulario
-      _mensajeController.clear();
+      // Limpiar formulario si fue exitoso
+      if (resultado['success'] == true) {
+        _mensajeController.clear();
+      }
 
-      // Mostrar mensaje de éxito
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: const [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  '¡Notificación enviada a todos los usuarios!',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      // Mostrar resultado al usuario
+      if (mounted) {
+        final bool exitoso = resultado['success'] ?? false;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  exitoso ? Icons.check_circle : Icons.error_outline,
+                  color: Colors.white,
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        exitoso ? '¡Notificación enviada!' : 'Error al enviar',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (exitoso && resultado['successCount'] != null)
+                        Text(
+                          '✅ ${resultado['successCount']} usuarios notificados',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      if (!exitoso)
+                        Text(
+                          resultado['error'] ?? 'Error desconocido',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: exitoso ? successGreen : errorColor,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 4),
           ),
-          backgroundColor: successGreen,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          margin: const EdgeInsets.all(16),
-          duration: const Duration(seconds: 3),
-        ),
-      );
+        );
+      }
 
-      // Resetear animación después de 2 segundos
+      // Resetear estado después de 2 segundos
       Future.delayed(const Duration(seconds: 2), () {
         if (mounted) {
           setState(() {
@@ -119,32 +237,36 @@ class _CrearNotificacionScreenState extends State<CrearNotificacionScreen>
         }
       });
     } catch (e) {
+      print('❌ Error en _enviarNotificacion: $e');
+
       setState(() {
         _isLoading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.error_outline, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Error al enviar: ${e.toString()}',
-                  style: const TextStyle(fontSize: 15),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Error al enviar: ${e.toString()}',
+                    style: const TextStyle(fontSize: 15),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
+            backgroundColor: errorColor,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
           ),
-          backgroundColor: errorColor,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+        );
+      }
     }
   }
 
@@ -245,28 +367,16 @@ class _CrearNotificacionScreenState extends State<CrearNotificacionScreen>
                           ),
                         ],
                       ),
-                      InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () {},
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: const Color.fromARGB(0, 255, 255, 255),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color.fromARGB(0, 255, 255, 255)
-                                    .withOpacity(0.15),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.campaign_rounded,
-                            color: Color(0xFF940016),
-                            size: 22,
-                          ),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color.fromARGB(0, 255, 255, 255),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.campaign_rounded,
+                          color: Color(0xFF940016),
+                          size: 22,
                         ),
                       ),
                     ],
@@ -313,20 +423,21 @@ class _CrearNotificacionScreenState extends State<CrearNotificacionScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color.fromARGB(255, 66, 58, 58).withOpacity(0.15),
+        color: mainRed.withOpacity(0.1),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: mainRed.withOpacity(0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.white, size: 14),
+          Icon(icon, color: mainRed, size: 14),
           const SizedBox(width: 6),
           Text(
             text,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: Color.fromARGB(255, 46, 44, 44),
+              color: mainRed,
             ),
           ),
         ],
@@ -709,80 +820,37 @@ class _CrearNotificacionScreenState extends State<CrearNotificacionScreen>
       decoration: BoxDecoration(
         color: lightBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300, width: 2),
+        border: Border.all(color: Colors.grey.shade300),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: accentOrange.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: accentOrange.withOpacity(0.3),
-                width: 1.5,
-              ),
-            ),
-            child: Icon(
-              Icons.campaign_outlined,
-              color: accentOrange,
-              size: 22,
-            ),
+          Icon(
+            Icons.notifications_active_rounded,
+            color: primaryBusBlue,
+            size: 28,
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: accentOrange.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    'Anuncio General',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: accentOrange,
-                      letterSpacing: 0.5,
-                    ),
+                Text(
+                  '📢 Anuncio Importante',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: darkNavy,
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 6),
                 Text(
-                  _mensajeController.text,
+                  _mensajeController.text.trim(),
                   style: TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: darkNavy,
-                    height: 1.5,
-                    letterSpacing: -0.2,
+                    color: textGray,
+                    height: 1.4,
                   ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.schedule,
-                      size: 14,
-                      color: textGray,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Ahora mismo',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: textGray,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),

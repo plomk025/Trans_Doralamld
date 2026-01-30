@@ -1,8 +1,10 @@
+import 'dart:convert';
+
 import 'package:app2tesis/usuario/Pantallas_inicio/iniciarsesion.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
-
+import 'package:http/http.dart' as http;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -1155,6 +1157,9 @@ class _AdminVerificacionPagosScreenState
   }
 
   // ==================== APROBAR CON CLOUD FUNCTION ====================
+  // ==================== AGREGAR ESTA IMPORTACIÓN AL INICIO DEL ARCHIVO ====================
+
+// ==================== APROBAR CON NOTIFICACIÓN PUSH ====================
   Future<void> _aprobarTransferencia(
       DocumentSnapshot reserva, Map<String, dynamic> data) async {
     try {
@@ -1420,6 +1425,15 @@ class _AdminVerificacionPagosScreenState
         'aprobadoPor': 'admin',
       });
 
+      // 🆕 ==================== ENVIAR NOTIFICACIÓN PUSH ====================
+      await _enviarNotificacionPush(
+        userId: data['userId'],
+        titulo: '✅ Pago Aprobado',
+        mensaje:
+            'Tu pago ha sido aprobado. Asiento ${data['asientos'][0]} confirmado para el bus $numeroBus.',
+      );
+      // ====================================================================
+
       if (!mounted) return;
       Navigator.pop(context);
 
@@ -1429,7 +1443,7 @@ class _AdminVerificacionPagosScreenState
             children: [
               Icon(Icons.check_circle_outline, color: Colors.white),
               SizedBox(width: 12),
-              Text('Transferencia aprobada exitosamente'),
+              Text('Transferencia aprobada y notificación enviada'),
             ],
           ),
           backgroundColor: successGreen,
@@ -1454,7 +1468,7 @@ class _AdminVerificacionPagosScreenState
     }
   }
 
-  // ==================== RECHAZAR CON CLOUD FUNCTION ====================
+// ==================== RECHAZAR CON NOTIFICACIÓN PUSH ====================
   Future<void> _rechazarTransferencia(
       DocumentSnapshot reserva, Map<String, dynamic> data) async {
     String? motivo = await showDialog<String>(
@@ -1683,6 +1697,15 @@ class _AdminVerificacionPagosScreenState
         'rechazadoPor': 'admin',
       });
 
+      // 🆕 ==================== ENVIAR NOTIFICACIÓN PUSH ====================
+      await _enviarNotificacionPush(
+        userId: data['userId'],
+        titulo: '❌ Pago Rechazado',
+        mensaje:
+            'Tu pago ha sido rechazado. Asiento ${data['asientos'][0]} del bus $numeroBus. Motivo: $motivo',
+      );
+      // ====================================================================
+
       if (!mounted) return;
       Navigator.pop(context);
 
@@ -1716,6 +1739,45 @@ class _AdminVerificacionPagosScreenState
       }
     }
   }
+
+// 🆕 ==================== FUNCIÓN PARA ENVIAR NOTIFICACIÓN PUSH ====================
+  Future<void> _enviarNotificacionPush({
+    required String userId,
+    required String titulo,
+    required String mensaje,
+  }) async {
+    try {
+      // ✅ SOLO el dominio base
+      const String baseUrl = 'https://notificaciones-1hoa.onrender.com';
+
+      // ✅ Endpoint correcto (tal como está en Flask)
+      final Uri url = Uri.parse(
+        '$baseUrl/api/notifications/send-to-user',
+      );
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'userId': userId,
+          'title': titulo,
+          'body': mensaje,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print('✅ Notificación push enviada correctamente');
+        print('📱 Respuesta: ${response.body}');
+      } else {
+        print('⚠️ Error al enviar notificación push: ${response.statusCode}');
+        print('📱 Respuesta: ${response.body}');
+      }
+    } catch (e) {
+      print('❌ Error al enviar notificación push: $e');
+    }
+  }
+
+  // ==================== RECHAZAR CON CLOUD FUNCTION ====================
 
   // ==================== GENERAR Y SUBIR BOLETO ====================
   Future<String> _generarYSubirBoleto(

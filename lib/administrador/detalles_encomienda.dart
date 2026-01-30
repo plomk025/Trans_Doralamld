@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
-
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -395,10 +396,12 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
   Future<void> _crearNotificacion(
       String uidRemitente, String nuevoEstado) async {
     try {
-      // ✅ Obtener correo del remitente
+      // ✅ Obtener datos del remitente
       final remitente = widget.data['remitente'] ?? {};
+      final destinatario = widget.data['destinatario'] ?? {};
       final correoRemitente = remitente['correo'] ?? '';
       final nombreRemitente = remitente['nombre'] ?? '';
+      final destinoCiudad = destinatario['ciudad'] ?? '';
 
       // ✅ Textos según el estado
       String titulo = '';
@@ -408,8 +411,9 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
       switch (nuevoEstado) {
         case 'en_transito':
           titulo = 'Encomienda en Tránsito 🚚';
-          mensaje =
-              'Tu encomienda ${widget.codigo} ha sido cargada en el bus y está en camino.';
+          mensaje = destinoCiudad.isNotEmpty
+              ? 'Tu encomienda ${widget.codigo} está en camino hacia $destinoCiudad.'
+              : 'Tu encomienda ${widget.codigo} ha sido cargada en el bus y está en camino.';
           accion = 'transito';
           break;
         case 'entregado':
@@ -419,16 +423,16 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
           accion = 'entregado';
           break;
         default:
-          titulo = 'Actualización de Encomienda';
+          titulo = 'Actualización de Encomienda 📬';
           mensaje = 'El estado de tu encomienda ${widget.codigo} ha cambiado.';
           accion = 'actualizacion';
       }
 
-      // ✅ Crear notificación en Firestore
+      // ✅ 1. Crear notificación en Firestore (ya lo tenías)
       await FirebaseFirestore.instance.collection('notificaciones').add({
         'uid': uidRemitente,
-        'correo': correoRemitente, // ✅ NUEVO
-        'nombre_remitente': nombreRemitente, // ✅ NUEVO
+        'correo': correoRemitente,
+        'nombre_remitente': nombreRemitente,
         'titulo': titulo,
         'mensaje': mensaje,
         'codigo_encomienda': widget.codigo,
@@ -436,14 +440,77 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         'leida': false,
         'fecha': FieldValue.serverTimestamp(),
         'tipo': 'encomienda',
-        'accion': accion, // ✅ NUEVO
+        'accion': accion,
       });
 
-      print('✅ Notificación creada para usuario: $uidRemitente');
+      print('✅ Notificación creada en Firestore para: $uidRemitente');
       print('📧 Correo: $correoRemitente');
+
+      // ✅ 2. NUEVO: Enviar Push Notification a través del servidor
+      await _enviarNotificacionPush(
+        uidRemitente: uidRemitente,
+        titulo: titulo,
+        mensaje: mensaje,
+        codigoEncomienda: widget.codigo,
+        estado: nuevoEstado,
+        userId: 'userId',
+      );
     } catch (e) {
       print('❌ Error al crear notificación: $e');
       // No detenemos el proceso si falla la notificación
+    }
+  }
+
+// ==================== PASO 4: AGREGAR NUEVA FUNCIÓN PARA PUSH NOTIFICATIONS ====================
+// Agrega esta función nueva después de _crearNotificacion:
+  Future<void> _enviarNotificacionPush({
+    required String userId,
+    required String titulo,
+    required String mensaje,
+    required String uidRemitente,
+    required String codigoEncomienda,
+    required String estado,
+  }) async {
+    try {
+      // ✅ SOLO el dominio base
+      const String baseUrl = 'https://notificaciones-1hoa.onrender.com';
+
+      // ✅ Endpoint correcto (tal como está en Flask)
+      final Uri url = Uri.parse(
+        '$baseUrl/api/notifications/send-to-user',
+      );
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'userId': uidRemitente,
+          'title': titulo,
+          'body': mensaje,
+          'data': {
+            'tipo': 'encomienda',
+            'codigo': codigoEncomienda,
+            'estado': estado,
+            'accion': 'cambio_estado',
+            'timestamp': DateTime.now().toIso8601String(),
+          },
+          'channelId': 'encomiendas_channel',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        print('✅ Push notification enviada exitosamente');
+        print('📱 Email destinatario: ${responseData['email']}');
+        print('🆔 Message ID: ${responseData['messageId']}');
+      } else {
+        print('⚠️ Error al enviar push notification: ${response.statusCode}');
+        print('📄 Response: ${response.body}');
+      }
+    } catch (e) {
+      print('❌ Error en _enviarPushNotification: $e');
+      // No lanzar excepción para no interrumpir el flujo principal
+      // La notificación se guardó en Firestore de todas formas
     }
   }
 

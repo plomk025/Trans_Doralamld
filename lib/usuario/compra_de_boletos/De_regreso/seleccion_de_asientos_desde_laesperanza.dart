@@ -13,11 +13,20 @@ enum EstadoAsiento {
 }
 
 class ColoresAsientos {
-  static const Color disponible = Color(0xFFCDD3DD);
-  static const Color intentandoReservar = Color(0xFFF4A259);
-  static const Color reservado = Color(0xFF1B4965);
-  static const Color pagado = Color(0xFF4CAF50);
-  static const Color seleccionado = Color(0xFF940016);
+  // ✅ DISPONIBLE - Verde fresco y vibrante
+  static const Color disponible = Color(0xFF10B981); // Esmeralda moderno
+
+  // ⏳ INTENTANDO RESERVAR - Naranja cálido
+  static const Color intentandoReservar = Color(0xFFF59E0B); // Ámbar brillante
+
+  // 🔒 RESERVADO - Azul cielo suave
+  static const Color reservado = Color(0xFF3B82F6); // Azul royal
+
+  // 💰 PAGADO - Rojo elegante (tu color corporativo)
+  static const Color pagado = Color(0xFF940016); // Rojo Trans Doramald
+
+  // 👆 SELECCIONADO - Púrpura vibrante
+  static const Color seleccionado = Color(0xFF8B5CF6); // Violeta moderno
 }
 
 class LimitesReserva {
