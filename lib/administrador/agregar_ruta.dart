@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // NUEVO: Importar Firebase Auth
 
 // ==================== PANTALLA PRINCIPAL DE GESTIÓN DE RUTAS ====================
 class AgregarNombrePage extends StatefulWidget {
@@ -19,10 +20,195 @@ class _AgregarNombrePageState extends State<AgregarNombrePage> {
   static const Color textGray = Color(0xFF475569);
   static const Color successGreen = Color(0xFF059669);
 
+  // NUEVO: Variables para verificar el rol
+  bool _isAdmin = false;
+  bool _isLoadingRole = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _verificarRolUsuario();
+  }
+
+  // NUEVO: Método para verificar si el usuario es administrador
+  Future<void> _verificarRolUsuario() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user == null) {
+        setState(() {
+          _isAdmin = false;
+          _isLoadingRole = false;
+        });
+        return;
+      }
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('usuarios_registrados')
+          .doc(user.uid)
+          .get();
+
+      if (userDoc.exists) {
+        final rol = userDoc.data()?['rol'] ?? '';
+        setState(() {
+          _isAdmin = rol.toLowerCase() == 'administrador';
+          _isLoadingRole = false;
+        });
+      } else {
+        setState(() {
+          _isAdmin = false;
+          _isLoadingRole = false;
+        });
+      }
+    } catch (e) {
+      print('Error al verificar rol: $e');
+      setState(() {
+        _isAdmin = false;
+        _isLoadingRole = false;
+      });
+    }
+  }
+
+  // NUEVO: Método para mostrar mensaje de acceso denegado
+  void _mostrarAccesoDenegado() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.block_rounded,
+                color: Color(0xFFEF4444),
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Acceso Denegado',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: darkNavy,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Solo los administradores pueden gestionar rutas. Por favor, contacte a un administrador del sistema.',
+          style: TextStyle(fontSize: 14, color: textGray, height: 1.5),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryBusBlue,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final isTablet = size.width > 600;
+
+    // NUEVO: Mostrar loading mientras se verifica el rol
+    if (_isLoadingRole) {
+      return Scaffold(
+        backgroundColor: const Color.fromARGB(255, 243, 248, 255),
+        body: const Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(primaryBusBlue),
+            strokeWidth: 3,
+          ),
+        ),
+      );
+    }
+
+    // NUEVO: Mostrar pantalla de acceso denegado si no es admin
+    if (!_isAdmin) {
+      return Scaffold(
+        backgroundColor: const Color.fromARGB(255, 243, 248, 255),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(32),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444).withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.admin_panel_settings_rounded,
+                      size: 80,
+                      color: Color(0xFFEF4444),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  const Text(
+                    'Acceso Restringido',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      color: darkNavy,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Esta sección está disponible solo para administradores del sistema.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: textGray,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    label: const Text('Volver'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryBusBlue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 16,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 243, 248, 255),
@@ -1001,6 +1187,8 @@ class _AgregarRutaScreenState extends State<AgregarRutaScreen> {
     );
   }
 }
+
+// El resto del código (VerRutasScreen) permanece igual...
 
 // ==================== PANTALLA VER RUTAS ====================
 class VerRutasScreen extends StatefulWidget {

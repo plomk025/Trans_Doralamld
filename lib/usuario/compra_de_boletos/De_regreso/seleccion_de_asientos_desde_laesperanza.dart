@@ -1,3 +1,4 @@
+import 'package:app2tesis/usuario/compra_de_boletos/De_ida/Datos_del_comprador.dart';
 import 'package:app2tesis/usuario/compra_de_boletos/De_regreso/Datos_del_comprador_desde_esperanza.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -13,27 +14,16 @@ enum EstadoAsiento {
 }
 
 class ColoresAsientos {
-  // ✅ DISPONIBLE - Verde fresco y vibrante
-  static const Color disponible = Color(0xFF10B981); // Esmeralda moderno
-
-  // ⏳ INTENTANDO RESERVAR - Naranja cálido
-  static const Color intentandoReservar = Color(0xFFF59E0B); // Ámbar brillante
-
-  // 🔒 RESERVADO - Azul cielo suave
-  static const Color reservado = Color(0xFF3B82F6); // Azul royal
-
-  // 💰 PAGADO - Rojo elegante (tu color corporativo)
-  static const Color pagado = Color(0xFF940016); // Rojo Trans Doramald
-
-  // 👆 SELECCIONADO - Púrpura vibrante
-  static const Color seleccionado = Color(0xFF8B5CF6); // Violeta moderno
+  static const Color disponible = Color(0xFFCDD3DD);
+  static const Color intentandoReservar = Color(0xFFF4A259);
+  static const Color reservado = Color(0xFF1B4965);
+  static const Color pagado = Color(0xFF4CAF50);
+  static const Color seleccionado = Color(0xFF940016);
 }
 
 class LimitesReserva {
-  static const int LIMITE_DIARIO_TOTAL =
-      4; // Límite combinado de reservas + compras
-  static const int MAX_RESERVAS_ACTIVAS =
-      4; // Mantener 1 reserva activa a la vez
+  static const int LIMITE_DIARIO_TOTAL = 4;
+  static const int MAX_RESERVAS_ACTIVAS = 4;
 }
 
 // ==================== PANTALLA PRINCIPAL DE ASIENTOS ====================
@@ -72,11 +62,11 @@ class _AsientosScreen2State extends State<AsientosScreen2>
   bool _inicializado = false;
   bool _pantallaActiva = true;
   bool _yaVerificado = false;
+  bool _isAdmin = false; // ✅ NUEVO: Variable para almacenar si es admin
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
 
-  static const String ADMIN_EMAIL = 'admin@dominio.com';
   static const int TIMEOUT_INTENTANDO_RESERVAR = 300;
   static const int HEARTBEAT_INTERVAL = 10;
   static const int HEARTBEAT_TIMEOUT = 300;
@@ -124,10 +114,45 @@ class _AsientosScreen2State extends State<AsientosScreen2>
   }
 
   Future<void> _inicializar() async {
+    await _verificarRolAdmin(); // ✅ NUEVO: Verificar rol primero
     await _limpiarReservasAbandonadas();
     _iniciarHeartbeat();
     _iniciarLimpiezaPeriodica();
     _escucharCambiosReserva();
+  }
+
+  // ✅ NUEVO MÉTODO: Verificar si el usuario es administrador
+  Future<void> _verificarRolAdmin() async {
+    final esAdmin = await _esAdministrador();
+    if (mounted) {
+      setState(() {
+        _isAdmin = esAdmin;
+      });
+      debugPrint('👤 Usuario es administrador: $_isAdmin');
+    }
+  }
+
+  // ✅ NUEVO MÉTODO: Consultar rol en Firestore
+  Future<bool> _esAdministrador() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return false;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('usuarios_registrados')
+          .doc(user.uid)
+          .get();
+
+      if (doc.exists) {
+        final rol = doc.data()?['rol']?.toString().toLowerCase() ?? '';
+        debugPrint('🔍 Rol del usuario en Firestore: $rol');
+        return rol == 'administrador';
+      }
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error al verificar administrador: $e');
+      return false;
+    }
   }
 
   @override
@@ -309,8 +334,12 @@ class _AsientosScreen2State extends State<AsientosScreen2>
         debugPrint('✅ Limpieza inicial completada');
       }
 
-      if (userEmail != ADMIN_EMAIL) {
+      // ✅ MODIFICADO: Solo verificar límites si NO es admin
+      if (!_isAdmin) {
         await _verificarLimiteCompras();
+      } else {
+        debugPrint(
+            'ℹ️ Usuario administrador - Omitiendo verificación de límites');
       }
     } catch (e) {
       debugPrint('❌ Error al limpiar reservas: $e');
@@ -323,7 +352,8 @@ class _AsientosScreen2State extends State<AsientosScreen2>
 
   // ==================== VERIFICACIÓN DE LÍMITES ====================
   Future<Map<String, int>> _contarBoletosUsuario() async {
-    if (userEmail == null || userEmail == ADMIN_EMAIL) {
+    // ✅ MODIFICADO: Admin no tiene límites
+    if (userEmail == null || _isAdmin) {
       return {'reservados': 0, 'comprados': 0, 'total': 0};
     }
 
@@ -436,7 +466,8 @@ class _AsientosScreen2State extends State<AsientosScreen2>
   }
 
   Future<void> _verificarLimiteCompras() async {
-    if (userEmail == null || userEmail == ADMIN_EMAIL || _yaVerificado) return;
+    // ✅ MODIFICADO: Admin no tiene límites
+    if (userEmail == null || _isAdmin || _yaVerificado) return;
 
     _yaVerificado = true;
 
@@ -757,7 +788,12 @@ class _AsientosScreen2State extends State<AsientosScreen2>
 
   Future<bool> _verificarPuedeReservar(int numeroAsientoIntentando) async {
     if (userEmail == null) return false;
-    if (userEmail == ADMIN_EMAIL) return true;
+
+    // ✅ MODIFICADO: Admin siempre puede reservar
+    if (_isAdmin) {
+      debugPrint('👤 Usuario administrador - Sin restricciones');
+      return true;
+    }
 
     try {
       final conteo = await _contarBoletosUsuario();
@@ -920,7 +956,6 @@ class _AsientosScreen2State extends State<AsientosScreen2>
       final index = asientos.indexWhere((a) => a['numero'] == numero);
       if (index == -1) return false;
 
-      // CORRECCIÓN: Verificar primero si es tuyo antes de rechazar
       final estadoActual = asientos[index]['estado'];
       final emailActual = asientos[index]['email'];
 
@@ -935,8 +970,8 @@ class _AsientosScreen2State extends State<AsientosScreen2>
         return false;
       }
 
-      // Verificar límite de reservas activas (solo si no es admin)
-      if (userEmail != ADMIN_EMAIL) {
+      // ✅ MODIFICADO: Admin no tiene límite de reservas activas
+      if (!_isAdmin) {
         final otrasReservas = asientos
             .where((a) =>
                 a['numero'] != numero &&
@@ -1135,17 +1170,13 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                     children: [
                       Row(
                         children: [
-                          // Reemplaza el botón de retroceso en _buildHeader() con este código:
-
                           InkWell(
                             borderRadius: BorderRadius.circular(12),
                             onTap: () async {
-                              // Liberar asiento si hay uno seleccionado
                               if (asientoSeleccionado != null) {
                                 await _liberarAsientoTemporal();
                               }
 
-                              // Regresar a la pantalla anterior
                               if (Navigator.canPop(context)) {
                                 Navigator.pop(context);
                               }
@@ -1173,10 +1204,10 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                             ),
                           ),
                           const SizedBox(width: 12),
-                          const Column(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              const Text(
                                 'SELECCIÓN DE ASIENTO',
                                 style: TextStyle(
                                   fontSize: 14,
@@ -1185,14 +1216,39 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                                   letterSpacing: 1,
                                 ),
                               ),
-                              Text(
-                                'Elige tu asiento',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                  color: Color.fromARGB(255, 38, 38, 39),
-                                  letterSpacing: 0.5,
-                                ),
+                              // ✅ MODIFICADO: Mostrar badge de admin
+                              Row(
+                                children: [
+                                  const Text(
+                                    'Elige tu asiento',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color.fromARGB(255, 38, 38, 39),
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  if (_isAdmin) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: successGreen,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'ADMIN',
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ],
                           ),
@@ -1364,7 +1420,8 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                     ],
                   ),
                 ),
-                if (userEmail != ADMIN_EMAIL) ...[
+                // ✅ MODIFICADO: Solo mostrar restricciones si NO es admin
+                if (!_isAdmin) ...[
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(10),
@@ -1502,7 +1559,6 @@ class _AsientosScreen2State extends State<AsientosScreen2>
             ),
             child: Column(
               children: [
-                // Indicador del conductor
                 Container(
                   margin: const EdgeInsets.only(bottom: 20),
                   padding: const EdgeInsets.all(12),
@@ -1528,7 +1584,6 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                     ],
                   ),
                 ),
-                // Grid de asientos
                 _buildAsientosLayout(asientos),
               ],
             ),
@@ -1541,48 +1596,39 @@ class _AsientosScreen2State extends State<AsientosScreen2>
   Widget _buildAsientosLayout(List<Map<String, dynamic>> asientos) {
     final totalAsientos = asientos.length;
 
-    // Configuración según el total de asientos (común en buses reales)
     int asientosNormales;
     int asientosFilaTrasera;
 
     if (totalAsientos <= 20) {
-      // Bus pequeño: 16 normales + 4 traseros = 20
       asientosNormales = totalAsientos - 4;
       asientosFilaTrasera = 4;
     } else if (totalAsientos <= 30) {
-      // Bus mediano: 24-26 normales + 4-5 traseros = 28-30
-      // Si es par, 4 traseros; si es impar, 5 traseros
       asientosFilaTrasera = totalAsientos % 2 == 0 ? 4 : 5;
       asientosNormales = totalAsientos - asientosFilaTrasera;
     } else if (totalAsientos <= 40) {
-      // Bus grande: 32-36 normales + 4-5 traseros = 36-40
       asientosFilaTrasera = totalAsientos % 2 == 0 ? 4 : 5;
       asientosNormales = totalAsientos - asientosFilaTrasera;
     } else {
-      // Bus extra grande: más de 40 asientos
       asientosFilaTrasera = 6;
       asientosNormales = totalAsientos - asientosFilaTrasera;
     }
 
-    // Asegurarse de que no haya números negativos
     if (asientosNormales < 0) {
       asientosNormales = totalAsientos;
       asientosFilaTrasera = 0;
     }
 
-    final asientosEnFilaNormal = 4; // Siempre 2-2 (estándar en buses)
+    final asientosEnFilaNormal = 4;
     final filasNormales = (asientosNormales / asientosEnFilaNormal).ceil();
     final tieneFilaTrasera = asientosFilaTrasera > 0;
 
     return Column(
       children: [
-        // Filas normales (4 asientos por fila: 2-2)
         ...List.generate(filasNormales, (rowIndex) {
           final startIndex = rowIndex * 4;
           final endIndex = (startIndex + 4).clamp(0, asientosNormales);
           final asientosEnFila = asientos.sublist(startIndex, endIndex);
 
-          // Si es la última fila y tiene menos de 4 asientos, centrarlos
           final esUltimaFila = rowIndex == filasNormales - 1;
           final asientosFaltantes = 4 - asientosEnFila.length;
           final centrar = esUltimaFila && asientosFaltantes > 0;
@@ -1591,7 +1637,6 @@ class _AsientosScreen2State extends State<AsientosScreen2>
             padding: const EdgeInsets.only(bottom: 10),
             child: Row(
               children: [
-                // Lado izquierdo (2 asientos)
                 Expanded(
                   flex: 2,
                   child: Row(
@@ -1608,9 +1653,7 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                     ],
                   ),
                 ),
-                // Pasillo central
                 const SizedBox(width: 60),
-                // Lado derecho (2 asientos)
                 Expanded(
                   flex: 2,
                   child: Row(
@@ -1631,8 +1674,6 @@ class _AsientosScreen2State extends State<AsientosScreen2>
             ),
           );
         }),
-
-        // Fila trasera (4 o 5 asientos según corresponda)
         if (tieneFilaTrasera) ...[
           const SizedBox(height: 8),
           Container(
@@ -1675,7 +1716,6 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                   ],
                 ),
                 const SizedBox(height: 10),
-                // Mostrar asientos traseros
                 Row(
                   children: List.generate(
                     asientosFilaTrasera.clamp(
@@ -1885,7 +1925,6 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                       elevation: asientoSeleccionadoUI == null ? 0 : 2,
                       shadowColor: mainRed.withOpacity(0.3),
                     ),
-                    // Busca esta línea en el método _buildBottomBar() (alrededor de la línea 1070)
                     onPressed: (asientoSeleccionadoUI == null ||
                             _operacionEnProgreso)
                         ? null
@@ -1928,7 +1967,6 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                             if (mounted) {
                               if (resultado == true) {
                                 debugPrint('✅ Compra completada exitosamente');
-                                // ✅ LIMPIAR SELECCIÓN DESPUÉS DE COMPRA EXITOSA
                                 setState(() {
                                   asientoSeleccionado = null;
                                   asientoSeleccionadoUI = null;
@@ -1938,7 +1976,6 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                                     '⚠️ Usuario regresó sin completar - Asiento expirará en ${TIMEOUT_INTENTANDO_RESERVAR}s desde timestamp');
                               }
 
-                              // Reiniciar listeners en ambos casos
                               _iniciarHeartbeat();
                               _iniciarLimpiezaPeriodica();
                               _escucharCambiosReserva();

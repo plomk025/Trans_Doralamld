@@ -2,6 +2,8 @@ import 'dart:math';
 import 'package:app2tesis/usuario/Encomiendas/datos_encomienda.dart';
 import 'package:app2tesis/usuario/Encomiendas/datos_del_destinatario.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // 🆕 Para copiar al portapapeles
+import 'package:share_plus/share_plus.dart'; // 🆕 Para compartir (agregar al pubspec.yaml)
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -17,14 +19,13 @@ class RemitenteScreen extends StatefulWidget {
 class _RemitenteScreenState extends State<RemitenteScreen> {
   // Paleta de colores igual a EncomiendaScreen
   static const Color primaryBusBlue = Color(0xFF940016);
-  static const Color accentOrange = Color(0xFFEA580C);
   static const Color darkNavy = Color(0xFF0F172A);
-  static const Color roadGray = Color(0xFF334155);
   static const Color lightBg = Color(0xFFF1F5F9);
   static const Color textGray = Color(0xFF475569);
   static const Color successGreen = Color(0xFF059669);
   static const Color warningRed = Color(0xFFEF4444);
-  String? _currentUserUid; // ✅ NUEVO
+  String? _currentUserUid;
+
   // Controladores
   final TextEditingController _nombreController = TextEditingController();
   final TextEditingController _cedulaController = TextEditingController();
@@ -35,12 +36,16 @@ class _RemitenteScreenState extends State<RemitenteScreen> {
   late EncomiendaData _encomiendaData;
   bool _isLoadingUserData = true;
 
+  // Variables para las paradas de salida
+  List<String> _paradasSalida = [];
+  String? _selectedParadaSalida;
+  bool _isLoadingParadas = true;
+
   @override
   void initState() {
     super.initState();
-    // ✅ Capturar UID inmediatamente
     _currentUserUid = FirebaseAuth.instance.currentUser?.uid;
-    // Si ya hay datos, los cargamos; si no, creamos uno nuevo
+
     if (widget.encomiendaData != null) {
       _encomiendaData = widget.encomiendaData!;
       _nombreController.text = _encomiendaData.nombreRemitente ?? '';
@@ -59,14 +64,187 @@ class _RemitenteScreenState extends State<RemitenteScreen> {
     _loadParadasSalida();
   }
 
+  // 🆕 Método para copiar el código al portapapeles
+  void _copiarCodigo() {
+    Clipboard.setData(ClipboardData(text: _encomiendaData.codigoEnvio));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                  'Código ${_encomiendaData.codigoEnvio} copiado al portapapeles'),
+            ),
+          ],
+        ),
+        backgroundColor: successGreen,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  // 🆕 Método para compartir el código
+  void _compartirCodigo() {
+    Share.share(
+      'Mi código de encomienda es: ${_encomiendaData.codigoEnvio}\n\nPuedes hacer seguimiento de tu envío con este código.',
+      subject: 'Código de Encomienda',
+    );
+  }
+
+  // 🆕 Método para mostrar opciones de compartir
+  void _mostrarOpcionesCodigo() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: [
+                    Text(
+                      _encomiendaData.codigoEnvio,
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: primaryBusBlue,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Código de Encomienda',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: textGray,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    _buildOpcionButton(
+                      icon: Icons.copy_rounded,
+                      titulo: 'Copiar código',
+                      subtitulo: 'Copiar al portapapeles',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _copiarCodigo();
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _buildOpcionButton(
+                      icon: Icons.share_rounded,
+                      titulo: 'Compartir código',
+                      subtitulo: 'Enviar por WhatsApp, SMS, etc.',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _compartirCodigo();
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // 🆕 Widget para los botones de opciones
+  Widget _buildOpcionButton({
+    required IconData icon,
+    required String titulo,
+    required String subtitulo,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: lightBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: primaryBusBlue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: primaryBusBlue, size: 22),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titulo,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: darkNavy,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitulo,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: textGray.withOpacity(0.8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: textGray,
+              size: 16,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _cargarDatosUsuario() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        // Cargar correo del usuario autenticado
         _correoController.text = user.email ?? '';
 
-        // Intentar cargar datos adicionales desde Firestore
         final userDoc = await FirebaseFirestore.instance
             .collection('usuarios_registrados')
             .doc(user.uid)
@@ -135,15 +313,13 @@ class _RemitenteScreenState extends State<RemitenteScreen> {
 
   void _guardarYContinuar() {
     if (!_validarFormulario()) return;
-    _encomiendaData.uid = _currentUserUid; // NUEVO
-    // Guardar datos en el modelo
+    _encomiendaData.uid = _currentUserUid;
     _encomiendaData.nombreRemitente = _nombreController.text.trim();
     _encomiendaData.cedulaRemitente = _cedulaController.text.trim();
     _encomiendaData.telefonoRemitente = _telefonoController.text.trim();
     _encomiendaData.correoRemitente = _correoController.text.trim();
     _encomiendaData.lugarSalida = _lugarSalidaController.text.trim();
 
-    // Navegar a la pantalla del destinatario
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -169,6 +345,33 @@ class _RemitenteScreenState extends State<RemitenteScreen> {
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  Future<void> _loadParadasSalida() async {
+    try {
+      setState(() {
+        _isLoadingParadas = true;
+      });
+
+      final QuerySnapshot snapshot = await FirebaseFirestore.instance
+          .collection('lugares_salida')
+          .orderBy('lugar')
+          .get();
+
+      setState(() {
+        _paradasSalida =
+            snapshot.docs.map((doc) => doc['lugar'] as String).toList();
+        _isLoadingParadas = false;
+      });
+    } catch (e) {
+      print('Error al cargar paradas: $e');
+      setState(() {
+        _isLoadingParadas = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al cargar las paradas de salida')),
+      );
+    }
   }
 
   @override
@@ -298,13 +501,27 @@ class _RemitenteScreenState extends State<RemitenteScreen> {
                               letterSpacing: 1,
                             ),
                           ),
-                          Text(
-                            'Código: ${_encomiendaData.codigoEnvio}',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: primaryBusBlue,
-                              letterSpacing: 0.5,
+                          // 🆕 Código clickeable
+                          GestureDetector(
+                            onTap: _mostrarOpcionesCodigo,
+                            child: Row(
+                              children: [
+                                Text(
+                                  'Código: ${_encomiendaData.codigoEnvio}',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: primaryBusBlue,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.copy_rounded,
+                                  color: primaryBusBlue,
+                                  size: 12,
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -567,7 +784,7 @@ class _RemitenteScreenState extends State<RemitenteScreen> {
               icon: Icons.email_outlined,
               isRequired: true,
               keyboardType: TextInputType.emailAddress,
-              enabled: false, // Deshabilitado porque viene de Firebase Auth
+              enabled: false,
               suffixIcon: const Icon(
                 Icons.lock_outline,
                 size: 18,
@@ -582,40 +799,6 @@ class _RemitenteScreenState extends State<RemitenteScreen> {
     );
   }
 
-// Variables para las paradas de salida
-  List<String> _paradasSalida = [];
-  String? _selectedParadaSalida;
-  bool _isLoadingParadas = true;
-
-// Método para cargar las paradas desde Firestore
-  Future<void> _loadParadasSalida() async {
-    try {
-      setState(() {
-        _isLoadingParadas = true;
-      });
-
-      final QuerySnapshot snapshot = await FirebaseFirestore.instance
-          .collection('lugares_salida')
-          .orderBy('lugar')
-          .get();
-
-      setState(() {
-        _paradasSalida =
-            snapshot.docs.map((doc) => doc['lugar'] as String).toList();
-        _isLoadingParadas = false;
-      });
-    } catch (e) {
-      print('Error al cargar paradas: $e');
-      setState(() {
-        _isLoadingParadas = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al cargar las paradas de salida')),
-      );
-    }
-  }
-
-// Widget para el dropdown de paradas de salida
   Widget _buildParadaSalidaDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

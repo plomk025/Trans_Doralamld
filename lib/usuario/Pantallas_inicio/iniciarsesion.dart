@@ -33,6 +33,47 @@ class _HomePageState extends State<HomePage> {
   final Color mediumGray = const Color(0xFF718096);
   final Color accentBlue = const Color(0xFF3B82F6);
 
+  // 🆕 ==================== LISTA DE DOMINIOS VÁLIDOS ====================
+  final List<String> _validDomains = [
+    // Gmail
+    'gmail.com',
+    'googlemail.com',
+
+    // Outlook/Microsoft
+    'hotmail.com',
+    'outlook.com',
+    'live.com',
+    'msn.com',
+    'hotmail.es',
+    'outlook.es',
+    'live.es',
+
+    // Yahoo
+    'yahoo.com',
+    'yahoo.es',
+    'ymail.com',
+
+    // Apple
+    'icloud.com',
+    'me.com',
+    'mac.com',
+
+    // Otros populares
+    'protonmail.com',
+    'aol.com',
+    'zoho.com',
+    'gmx.com',
+    'mail.com',
+
+    // Educativos (puedes agregar más si lo necesitas)
+    'edu.ec',
+    'edu',
+
+    // Dominios empresariales comunes
+    'empresa.com',
+    'company.com',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -55,11 +96,54 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  // 🔔 ==================== CONFIGURAR STREAM DE NOTIFICACIONES ====================
-  // 🔔 ==================== CONFIGURAR STREAM DE NOTIFICACIONES ====================
-  // 🔔 ==================== MÉTODO ACTUALIZADO PARA HOMEPAGE ====================
-  // Reemplaza el método _setupNotificationsStream() en tu HomePage
+  // 🆕 ==================== VALIDAR DOMINIO DE EMAIL ====================
+  bool _isValidEmailDomain(String email) {
+    if (!email.contains('@')) return false;
 
+    final domain = email.split('@').last.toLowerCase();
+
+    // Verificar si el dominio está en la lista de válidos
+    return _validDomains
+        .any((validDomain) => domain == validDomain.toLowerCase());
+  }
+
+  // 🆕 ==================== VALIDAR EMAIL COMPLETO ====================
+  String? _validateEmail(String email) {
+    // Verificar que no esté vacío
+    if (email.isEmpty) {
+      return 'Por favor ingresa un correo electrónico';
+    }
+
+    // Verificar formato básico
+    if (!email.contains('@') || !email.contains('.')) {
+      return 'Ingresa un correo electrónico válido';
+    }
+
+    // Verificar que tenga texto antes del @
+    if (email.indexOf('@') == 0) {
+      return 'El correo debe tener un nombre de usuario';
+    }
+
+    // Verificar que el dominio sea válido
+    if (!_isValidEmailDomain(email)) {
+      return 'Usa un proveedor de correo válido (Gmail, Hotmail, Outlook, Yahoo, etc.)';
+    }
+
+    // Verificar que no tenga espacios
+    if (email.contains(' ')) {
+      return 'El correo no debe contener espacios';
+    }
+
+    // Verificar longitud mínima del nombre de usuario
+    final username = email.split('@').first;
+    if (username.length < 3) {
+      return 'El nombre de usuario debe tener al menos 3 caracteres';
+    }
+
+    return null; // Email válido
+  }
+
+  // 🔔 ==================== CONFIGURAR STREAM DE NOTIFICACIONES ====================
   void _setupNotificationsStream() {
     final User? user = _auth.currentUser;
 
@@ -98,7 +182,7 @@ class _HomePageState extends State<HomePage> {
             count++;
           }
 
-          // 🆕 VERIFICAR mensaje3 con el MAPA de usuarios
+          // VERIFICAR mensaje3 con el MAPA de usuarios
           if (tieneMensaje3 && !_esMensaje3Leido(data, user.email!)) {
             count++;
           }
@@ -115,9 +199,6 @@ class _HomePageState extends State<HomePage> {
       setState(() {});
     }
   }
-
-  // 🆕 ==================== AGREGAR ESTE MÉTODO NUEVO ====================
-  // Agrega este método en tu clase _HomePageState
 
   String _sanitizeEmail(String email) {
     return email.replaceAll('.', '_').replaceAll('@', '_at_');
@@ -167,7 +248,7 @@ class _HomePageState extends State<HomePage> {
 
       if (token != null) {
         await _firestore.collection('usuarios_registrados').doc(user.uid).set({
-          'userId': user.uid, // 🆕 Agregado userId
+          'userId': user.uid,
           'email': user.email,
           'fcmToken': token,
           'lastTokenUpdate': FieldValue.serverTimestamp(),
@@ -175,7 +256,7 @@ class _HomePageState extends State<HomePage> {
 
         print('✅ FCM Token guardado correctamente');
         print('📱 Token: ${token.substring(0, 30)}...');
-        print('👤 UserId: ${user.uid}'); // 🆕 Log del userId
+        print('👤 UserId: ${user.uid}');
       } else {
         print('⚠️ No se pudo obtener el FCM token');
       }
@@ -263,10 +344,10 @@ class _HomePageState extends State<HomePage> {
             ),
             child: Image.asset(
               _currentPageIndex == 0
-                  ? 'assets/icon2.png' // Imagen para información
+                  ? 'assets/icon2.png'
                   : _currentPageIndex == 1
-                      ? 'assets/icon2.png' // Imagen para menú
-                      : 'assets/icon2.png', // Imagen para notificaciones
+                      ? 'assets/icon2.png'
+                      : 'assets/icon2.png',
               width: 30,
               height: 30,
             ),
@@ -484,7 +565,6 @@ class _HomePageState extends State<HomePage> {
             );
           },
           items: [
-            // INFORMACIÓN
             BottomNavigationBarItem(
               icon: Container(
                 padding: EdgeInsets.all(isSmall ? 6 : 8),
@@ -503,8 +583,6 @@ class _HomePageState extends State<HomePage> {
               ),
               label: 'Información',
             ),
-
-            // MENÚ
             BottomNavigationBarItem(
               icon: Container(
                 padding: EdgeInsets.all(isSmall ? 6 : 8),
@@ -523,8 +601,6 @@ class _HomePageState extends State<HomePage> {
               ),
               label: 'Menú',
             ),
-
-            // 🔔 NOTIFICACIONES CON BADGE
             BottomNavigationBarItem(
               icon: StreamBuilder<int>(
                 stream: _unreadNotificationsStream,
@@ -584,183 +660,257 @@ class _HomePageState extends State<HomePage> {
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
       builder: (context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-            child: SingleChildScrollView(
-              child: Container(
-                constraints: BoxConstraints(maxWidth: maxWidth),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
+        String? errorMessage;
+
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                child: SingleChildScrollView(
+                  child: Container(
+                    constraints: BoxConstraints(maxWidth: maxWidth),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                padding: EdgeInsets.all(width < 600 ? 20 : 28),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                    padding: EdgeInsets.all(width < 600 ? 20 : 28),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          padding: EdgeInsets.all(width < 600 ? 8 : 10),
-                          decoration: BoxDecoration(
-                            color: primaryNavy.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(10),
+                        Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(width < 600 ? 8 : 10),
+                              decoration: BoxDecoration(
+                                color: primaryNavy.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Image.asset(
+                                'assets/icon2.png',
+                                width: 26,
+                                height: 26,
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Flexible(
+                              child: Text(
+                                'Iniciar Sesión',
+                                style: TextStyle(
+                                  color: darkGray,
+                                  fontSize: width < 600 ? 18 : 22,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: width < 600 ? 20 : 24),
+
+                        // MENSAJE DE ERROR
+                        if (errorMessage != null) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFFEF4444).withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.error_outline,
+                                  color: Color(0xFFEF4444),
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    errorMessage!,
+                                    style: const TextStyle(
+                                      color: Color(0xFFEF4444),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          child: Image.asset(
-                            'assets/icon2.png',
-                            width: 26,
-                            height: 26,
-                            fit: BoxFit.contain,
+                          SizedBox(height: width < 600 ? 16 : 18),
+                        ],
+
+                        _buildTextField(
+                          controller: _emailController,
+                          label: 'Correo electrónico',
+                          hint: 'tu@email.com',
+                          icon: Icons.email_outlined,
+                          keyboardType: TextInputType.emailAddress,
+                        ),
+                        SizedBox(height: width < 600 ? 14 : 16),
+                        _buildTextField(
+                          controller: _passwordController,
+                          label: 'Contraseña',
+                          hint: '••••••••',
+                          icon: Icons.lock_outline_rounded,
+                          obscureText: true,
+                        ),
+                        SizedBox(height: width < 600 ? 20 : 24),
+                        SizedBox(
+                          width: double.infinity,
+                          height: width < 600 ? 48 : 52,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              setStateDialog(() {
+                                errorMessage = null;
+                              });
+
+                              final email = _emailController.text.trim();
+                              final password = _passwordController.text.trim();
+
+                              // 🆕 VALIDACIONES MEJORADAS
+                              if (email.isEmpty || password.isEmpty) {
+                                setStateDialog(() {
+                                  errorMessage =
+                                      'Por favor completa todos los campos';
+                                });
+                                return;
+                              }
+
+                              // 🆕 VALIDAR DOMINIO DEL EMAIL
+                              final emailValidation = _validateEmail(email);
+                              if (emailValidation != null) {
+                                setStateDialog(() {
+                                  errorMessage = emailValidation;
+                                });
+                                return;
+                              }
+
+                              // Lógica original
+                              if (email == 'admin@dominio.com' &&
+                                  password == 'adminpassword') {
+                                _showVerificationCodeField(context);
+                              } else if (email != 'admin@dominio.com') {
+                                _signInWithEmail(context);
+                              }
+                            },
+                            icon: Icon(Icons.login_rounded,
+                                size: width < 600 ? 18 : 20),
+                            label: Text(
+                              'Iniciar Sesión',
+                              style: TextStyle(
+                                fontSize: width < 600 ? 14 : 16,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF940016),
+                              foregroundColor: Colors.white,
+                              elevation: 2,
+                              shadowColor: primaryNavy.withOpacity(0.3),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 14),
-                        Flexible(
-                          child: Text(
-                            'Iniciar Sesión',
-                            style: TextStyle(
-                              color: darkGray,
-                              fontSize: width < 600 ? 18 : 22,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.5,
+                        SizedBox(height: width < 600 ? 14 : 16),
+                        Row(
+                          children: [
+                            Expanded(child: Divider(color: Colors.grey[300])),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: Text(
+                                'o continúa con',
+                                style: TextStyle(
+                                  color: mediumGray,
+                                  fontSize: width < 600 ? 12 : 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            Expanded(child: Divider(color: Colors.grey[300])),
+                          ],
+                        ),
+                        SizedBox(height: width < 600 ? 14 : 16),
+                        SizedBox(
+                          width: double.infinity,
+                          height: width < 600 ? 48 : 52,
+                          child: OutlinedButton.icon(
+                            onPressed: _signInWithGoogle,
+                            icon: Image.asset(
+                              'assets/google_icon.png',
+                              height: width < 600 ? 18 : 20,
+                              width: width < 600 ? 18 : 20,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Icon(
+                                  Icons.login,
+                                  color: Colors.red,
+                                  size: width < 600 ? 18 : 20,
+                                );
+                              },
+                            ),
+                            label: Text(
+                              'Continuar con Google',
+                              style: TextStyle(
+                                fontSize: width < 600 ? 13 : 15,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: darkGray,
+                              side: BorderSide(
+                                  color: Colors.grey[300]!, width: 1.5),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: width < 600 ? 16 : 20),
+                        Center(
+                          child: TextButton(
+                            onPressed: () {
+                              _emailController.clear();
+                              _passwordController.clear();
+                              Navigator.pop(context);
+                            },
+                            child: Text(
+                              'Cancelar',
+                              style: TextStyle(
+                                color: mediumGray,
+                                fontWeight: FontWeight.w600,
+                                fontSize: width < 600 ? 14 : 15,
+                              ),
                             ),
                           ),
                         ),
                       ],
                     ),
-                    SizedBox(height: width < 600 ? 20 : 24),
-                    _buildTextField(
-                      controller: _emailController,
-                      label: 'Correo electrónico',
-                      hint: 'tu@email.com',
-                      icon: Icons.email_outlined,
-                      keyboardType: TextInputType.emailAddress,
-                    ),
-                    SizedBox(height: width < 600 ? 14 : 16),
-                    _buildTextField(
-                      controller: _passwordController,
-                      label: 'Contraseña',
-                      hint: '••••••••',
-                      icon: Icons.lock_outline_rounded,
-                      obscureText: true,
-                    ),
-                    SizedBox(height: width < 600 ? 20 : 24),
-                    SizedBox(
-                      width: double.infinity,
-                      height: width < 600 ? 48 : 52,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          if (_emailController.text == 'admin@dominio.com' &&
-                              _passwordController.text == 'adminpassword') {
-                            _showVerificationCodeField(context);
-                          } else if (_emailController.text !=
-                              'admin@dominio.com') {
-                            _signInWithEmail(context);
-                          }
-                        },
-                        icon: Icon(Icons.login_rounded,
-                            size: width < 600 ? 18 : 20),
-                        label: Text(
-                          'Iniciar Sesión',
-                          style: TextStyle(
-                            fontSize: width < 600 ? 14 : 16,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF940016),
-                          foregroundColor: Colors.white,
-                          elevation: 2,
-                          shadowColor: primaryNavy.withOpacity(0.3),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: width < 600 ? 14 : 16),
-                    Row(
-                      children: [
-                        Expanded(child: Divider(color: Colors.grey[300])),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Text(
-                            'o continúa con',
-                            style: TextStyle(
-                              color: mediumGray,
-                              fontSize: width < 600 ? 12 : 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        Expanded(child: Divider(color: Colors.grey[300])),
-                      ],
-                    ),
-                    SizedBox(height: width < 600 ? 14 : 16),
-                    SizedBox(
-                      width: double.infinity,
-                      height: width < 600 ? 48 : 52,
-                      child: OutlinedButton.icon(
-                        onPressed: _signInWithGoogle,
-                        icon: Image.asset(
-                          'assets/google_icon.png',
-                          height: width < 600 ? 18 : 20,
-                          width: width < 600 ? 18 : 20,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Icon(
-                              Icons.login,
-                              color: Colors.red,
-                              size: width < 600 ? 18 : 20,
-                            );
-                          },
-                        ),
-                        label: Text(
-                          'Continuar con Google',
-                          style: TextStyle(
-                            fontSize: width < 600 ? 13 : 15,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: darkGray,
-                          side:
-                              BorderSide(color: Colors.grey[300]!, width: 1.5),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: width < 600 ? 16 : 20),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: Text(
-                          'Cancelar',
-                          style: TextStyle(
-                            color: mediumGray,
-                            fontWeight: FontWeight.w600,
-                            fontSize: width < 600 ? 14 : 15,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -892,10 +1042,8 @@ class _HomePageState extends State<HomePage> {
                                   .collection('usuarios_registrados')
                                   .doc(userCredential.user!.uid)
                                   .set({
-                                'userId': userCredential
-                                    .user!.uid, // 🆕 Agregado userId
+                                'userId': userCredential.user!.uid,
                                 'email': email,
-                                'role': 'admin',
                                 'createdAt': FieldValue.serverTimestamp(),
                               }, SetOptions(merge: true));
 
@@ -1005,122 +1153,208 @@ class _HomePageState extends State<HomePage> {
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
       builder: (context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: EdgeInsets.symmetric(horizontal: width < 600 ? 16 : 20),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-            child: SingleChildScrollView(
-              child: Container(
-                constraints: BoxConstraints(maxWidth: maxWidth),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
+        String? errorMessage;
+
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding:
+                  EdgeInsets.symmetric(horizontal: width < 600 ? 16 : 20),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                child: SingleChildScrollView(
+                  child: Container(
+                    constraints: BoxConstraints(maxWidth: maxWidth),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                padding: EdgeInsets.all(width < 600 ? 20 : 28),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                    padding: EdgeInsets.all(width < 600 ? 20 : 28),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          padding: EdgeInsets.all(width < 600 ? 8 : 10),
-                          decoration: BoxDecoration(
-                            color: accentBlue.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(10),
+                        Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(width < 600 ? 8 : 10),
+                              decoration: BoxDecoration(
+                                color: accentBlue.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Image.asset(
+                                'assets/icon2.png',
+                                width: 24,
+                                height: 24,
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Flexible(
+                              child: Text(
+                                'Crear Cuenta',
+                                style: TextStyle(
+                                  color: darkGray,
+                                  fontSize: width < 600 ? 18 : 22,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: width < 600 ? 20 : 24),
+
+                        // 🆕 MENSAJE DE ERROR PARA REGISTRO
+                        if (errorMessage != null) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFFEF4444).withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.error_outline,
+                                  color: Color(0xFFEF4444),
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    errorMessage!,
+                                    style: const TextStyle(
+                                      color: Color(0xFFEF4444),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          child: Image.asset(
-                            'assets/icon2.png',
-                            width: 24,
-                            height: 24,
-                            fit: BoxFit.contain,
+                          SizedBox(height: width < 600 ? 16 : 18),
+                        ],
+
+                        _buildTextField(
+                          controller: _emailController,
+                          label: 'Correo electrónico',
+                          hint: 'tu@email.com',
+                          icon: Icons.email_outlined,
+                          keyboardType: TextInputType.emailAddress,
+                        ),
+                        SizedBox(height: width < 600 ? 14 : 16),
+                        _buildTextField(
+                          controller: _passwordController,
+                          label: 'Contraseña',
+                          hint: '••••••••',
+                          icon: Icons.lock_outline_rounded,
+                          obscureText: true,
+                        ),
+                        SizedBox(height: width < 600 ? 20 : 24),
+                        SizedBox(
+                          width: double.infinity,
+                          height: width < 600 ? 48 : 52,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              // 🆕 Limpiar error anterior
+                              setStateDialog(() {
+                                errorMessage = null;
+                              });
+
+                              final email = _emailController.text.trim();
+                              final password = _passwordController.text.trim();
+
+                              // 🆕 VALIDACIONES
+                              if (email.isEmpty || password.isEmpty) {
+                                setStateDialog(() {
+                                  errorMessage =
+                                      'Por favor completa todos los campos';
+                                });
+                                return;
+                              }
+
+                              // 🆕 VALIDAR DOMINIO DEL EMAIL
+                              final emailValidation = _validateEmail(email);
+                              if (emailValidation != null) {
+                                setStateDialog(() {
+                                  errorMessage = emailValidation;
+                                });
+                                return;
+                              }
+
+                              if (password.length < 6) {
+                                setStateDialog(() {
+                                  errorMessage =
+                                      'La contraseña debe tener al menos 6 caracteres';
+                                });
+                                return;
+                              }
+
+                              // Ejecutar registro
+                              _registerWithEmail();
+                            },
+                            icon: Icon(Icons.person_add_rounded,
+                                color: const Color(0xFF940016),
+                                size: width < 600 ? 18 : 20),
+                            label: Text(
+                              'Crear Cuenta',
+                              style: TextStyle(
+                                fontSize: width < 600 ? 14 : 16,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF940016),
+                              foregroundColor: Colors.white,
+                              elevation: 2,
+                              shadowColor: accentBlue.withOpacity(0.3),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 14),
-                        Flexible(
-                          child: Text(
-                            'Crear Cuenta',
-                            style: TextStyle(
-                              color: darkGray,
-                              fontSize: width < 600 ? 18 : 22,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.5,
+                        SizedBox(height: width < 600 ? 16 : 20),
+                        Center(
+                          child: TextButton(
+                            onPressed: () {
+                              _emailController.clear();
+                              _passwordController.clear();
+                              Navigator.pop(context);
+                            },
+                            child: Text(
+                              'Cancelar',
+                              style: TextStyle(
+                                color: mediumGray,
+                                fontWeight: FontWeight.w600,
+                                fontSize: width < 600 ? 14 : 15,
+                              ),
                             ),
                           ),
                         ),
                       ],
                     ),
-                    SizedBox(height: width < 600 ? 20 : 24),
-                    _buildTextField(
-                      controller: _emailController,
-                      label: 'Correo electrónico',
-                      hint: 'tu@email.com',
-                      icon: Icons.email_outlined,
-                      keyboardType: TextInputType.emailAddress,
-                    ),
-                    SizedBox(height: width < 600 ? 14 : 16),
-                    _buildTextField(
-                      controller: _passwordController,
-                      label: 'Contraseña',
-                      hint: '••••••••',
-                      icon: Icons.lock_outline_rounded,
-                      obscureText: true,
-                    ),
-                    SizedBox(height: width < 600 ? 20 : 24),
-                    SizedBox(
-                      width: double.infinity,
-                      height: width < 600 ? 48 : 52,
-                      child: ElevatedButton.icon(
-                        onPressed: _registerWithEmail,
-                        icon: Icon(Icons.person_add_rounded,
-                            color: const Color(0xFF940016),
-                            size: width < 600 ? 18 : 20),
-                        label: Text(
-                          'Crear Cuenta',
-                          style: TextStyle(
-                            fontSize: width < 600 ? 14 : 16,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF940016),
-                          foregroundColor: Colors.white,
-                          elevation: 2,
-                          shadowColor: accentBlue.withOpacity(0.3),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: width < 600 ? 16 : 20),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: Text(
-                          'Cancelar',
-                          style: TextStyle(
-                            color: mediumGray,
-                            fontWeight: FontWeight.w600,
-                            fontSize: width < 600 ? 14 : 15,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -1201,7 +1435,7 @@ class _HomePageState extends State<HomePage> {
           .collection('usuarios_registrados')
           .doc(userCredential.user!.uid)
           .set({
-        'userId': userCredential.user!.uid, // 🆕 Agregado userId
+        'userId': userCredential.user!.uid,
         'email': email,
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -1246,7 +1480,7 @@ class _HomePageState extends State<HomePage> {
       final User? user = userCredential.user;
       if (user != null) {
         await _firestore.collection('usuarios_registrados').doc(user.uid).set({
-          'userId': user.uid, // 🆕 Agregado userId
+          'userId': user.uid,
           'email': user.email,
           'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -1313,7 +1547,7 @@ class _HomePageState extends State<HomePage> {
           .collection('usuarios_registrados')
           .doc(userCredential.user!.uid)
           .set({
-        'userId': userCredential.user!.uid, // 🆕 Agregado userId
+        'userId': userCredential.user!.uid,
         'email': _emailController.text.trim(),
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));

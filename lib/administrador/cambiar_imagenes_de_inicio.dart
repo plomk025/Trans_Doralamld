@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:app2tesis/usuario/Pantallas_inicio/iniciarsesion.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -24,7 +23,6 @@ class _ImageManagementPageState extends State<ImageManagementPage>
   static const Color primaryBusBlue = Color(0xFF940016);
   static const Color accentOrange = Color(0xFFEA580C);
   static const Color darkNavy = Color(0xFF0F172A);
-  static const Color roadGray = Color(0xFF334155);
   static const Color lightBg = Color(0xFFF1F5F9);
   static const Color textGray = Color(0xFF475569);
   static const Color successGreen = Color(0xFF059669);

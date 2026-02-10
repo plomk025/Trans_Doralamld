@@ -1,11 +1,11 @@
 import 'dart:io';
-import 'dart:math';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 // Modelo de datos para compartir entre pantallas
 class EncomiendaData {
@@ -35,7 +35,7 @@ class EncomiendaData {
 
   EncomiendaData({
     required this.codigoEnvio,
-    this.uid, // ✅ NUEVO
+    this.uid,
     this.nombreRemitente,
     this.cedulaRemitente,
     this.telefonoRemitente,
@@ -72,12 +72,12 @@ class EncomiendaData {
 
   Map<String, dynamic> toFirebaseMap() {
     return {
-      'uid': uid, // ✅ NUEVO - UID en nivel raíz
+      'uid': uid,
       'codigo_envio': codigoEnvio,
       'fecha_creacion': DateTime.now().toIso8601String(),
       'estado': 'pendiente',
       'remitente': {
-        'uid': uid, // ✅ NUEVO - UID también en remitente
+        'uid': uid,
         'nombre': nombreRemitente,
         'cedula': cedulaRemitente,
         'telefono': telefonoRemitente,
@@ -122,11 +122,9 @@ class EnvioScreen extends StatefulWidget {
 }
 
 class _EnvioScreenState extends State<EnvioScreen> {
-  // Paleta de colores igual a DestinatarioScreen
   static const Color primaryBusBlue = Color(0xFF940016);
   static const Color accentOrange = Color(0xFF940016);
   static const Color darkNavy = Color(0xFF0F172A);
-  static const Color roadGray = Color(0xFF334155);
   static const Color lightBg = Color(0xFFF1F5F9);
   static const Color textGray = Color(0xFF475569);
   static const Color successGreen = Color(0xFF059669);
@@ -138,7 +136,8 @@ class _EnvioScreenState extends State<EnvioScreen> {
       TextEditingController();
 
   bool _isLoading = false;
-  bool _isAdmin = false;
+  bool _isAdmin = false; // ✅ Ahora se determina desde Firebase
+  bool _encomiendaGuardada = false;
   List<Map<String, dynamic>> _tiposEncomienda = [];
   String? _tipoEncomiendaSeleccionado;
   XFile? _imagenPaquete;
@@ -147,7 +146,7 @@ class _EnvioScreenState extends State<EnvioScreen> {
   @override
   void initState() {
     super.initState();
-    _verificarUsuario();
+    _verificarUsuario(); // ✅ MODIFICADO: Ahora verifica el rol desde Firebase
     _cargarTiposEncomienda();
 
     _tipoEncomiendaSeleccionado = widget.encomiendaData.tipoEncomienda;
@@ -158,12 +157,35 @@ class _EnvioScreenState extends State<EnvioScreen> {
     _observacionesController.text = widget.encomiendaData.observaciones ?? '';
   }
 
+  // ✅ MODIFICADO: Verifica el rol desde Firebase en lugar del correo
   Future<void> _verificarUsuario() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      setState(() {
-        _isAdmin = user.email == 'admin@dominio.com';
-      });
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('usuarios_registrados ')
+            .doc(user.uid)
+            .get();
+
+        if (doc.exists && mounted) {
+          final rol = doc.data()?['rol']?.toString().toLowerCase() ?? '';
+          setState(() {
+            _isAdmin = rol == 'administrador';
+          });
+          print('🔐 Rol del usuario: $rol');
+          print('👤 Es administrador: $_isAdmin');
+        } else {
+          setState(() {
+            _isAdmin = false;
+          });
+          print('⚠️ No se encontró el documento del usuario');
+        }
+      } catch (e) {
+        print('❌ Error al verificar usuario: $e');
+        setState(() {
+          _isAdmin = false;
+        });
+      }
     }
   }
 
@@ -312,12 +334,17 @@ class _EnvioScreenState extends State<EnvioScreen> {
   }
 
   Future<void> _guardarYContinuar() async {
+    // ✅ PREVENIR DOBLE GUARDADO
+    if (_encomiendaGuardada) {
+      _mostrarError('La encomienda ya ha sido registrada');
+      return;
+    }
+
     if (!_validarFormulario()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      // ✅ OBTENER UID DEL USUARIO ACTUAL
       final user = FirebaseAuth.instance.currentUser;
       final String? currentUserUid = user?.uid;
 
@@ -371,7 +398,6 @@ class _EnvioScreenState extends State<EnvioScreen> {
       widget.encomiendaData.total = total;
       widget.encomiendaData.uid = currentUserUid;
 
-      // ✅ DOCUMENTO CON UID INCLUIDO
       final docData = {
         'uid': currentUserUid,
         'codigo_envio': widget.encomiendaData.codigoEnvio,
@@ -422,7 +448,9 @@ class _EnvioScreenState extends State<EnvioScreen> {
 
       print('✅ Encomienda guardada exitosamente');
 
-      // ✅ CREAR NOTIFICACIÓN DE REGISTRO
+      // ✅ MARCAR COMO GUARDADA
+      _encomiendaGuardada = true;
+
       await _crearNotificacionRegistro(
         currentUserUid,
         widget.encomiendaData.codigoEnvio,
@@ -443,7 +471,6 @@ class _EnvioScreenState extends State<EnvioScreen> {
     }
   }
 
-  /// ✅ Crear notificación cuando se registra una nueva encomienda
   Future<void> _crearNotificacionRegistro(
     String uid,
     String codigoEnvio,
@@ -459,8 +486,8 @@ class _EnvioScreenState extends State<EnvioScreen> {
 
       await FirebaseFirestore.instance.collection('notificaciones').add({
         'uid': uid,
-        'correo': correoRemitente, // ✅ Incluir correo
-        'nombre_remitente': nombreRemitente, // ✅ Incluir nombre
+        'correo': correoRemitente,
+        'nombre_remitente': nombreRemitente,
         'titulo': 'Encomienda Registrada 📦',
         'mensaje': _isAdmin
             ? 'La encomienda $codigoEnvio ha sido registrada exitosamente por el administrador.'
@@ -470,253 +497,378 @@ class _EnvioScreenState extends State<EnvioScreen> {
         'leida': false,
         'fecha': FieldValue.serverTimestamp(),
         'tipo': 'encomienda',
-        'accion': 'registro', // ✅ Tipo de acción
+        'accion': 'registro',
       });
 
       print('✅ Notificación creada exitosamente');
     } catch (e) {
       print('❌ Error al crear notificación: $e');
-      // No detenemos el proceso si falla la notificación
     }
   }
 
+  void _copiarCodigo() {
+    Clipboard.setData(ClipboardData(text: widget.encomiendaData.codigoEnvio));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(
+              child:
+                  Text('Código ${widget.encomiendaData.codigoEnvio} copiado'),
+            ),
+          ],
+        ),
+        backgroundColor: successGreen,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _compartirCodigo() {
+    Share.share(
+      '📦 Mi código de encomienda es: ${widget.encomiendaData.codigoEnvio}\n\n'
+      '✅ Puedes hacer seguimiento de tu envío con este código en nuestra aplicación.',
+      subject: 'Código de Encomienda - ${widget.encomiendaData.codigoEnvio}',
+    );
+  }
+
+  // ✅ DIÁLOGO CON BLOQUEO DE RETROCESO
   void _mostrarDialogoFinalizacion() {
     showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            color: Colors.white,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: successGreen.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.check_circle_outline,
-                  color: successGreen,
-                  size: 50,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                _isAdmin ? '¡Registro Completado!' : '¡Solicitud Registrada!',
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: darkNavy,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: accentOrange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: accentOrange.withOpacity(0.3),
-                    width: 1,
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    const Text(
-                      'Código de Envío',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: textGray,
-                        fontWeight: FontWeight.w600,
-                      ),
+      barrierDismissible: false, // ✅ No se puede cerrar tocando fuera
+      builder: (context) => WillPopScope(
+        onWillPop: () async => false, // ✅ BLOQUEA EL BOTÓN DE RETROCESO
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.9,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(
+                      MediaQuery.of(context).size.width < 360 ? 16 : 20,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.encomiendaData.codigoEnvio,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: accentOrange,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              if (_isAdmin) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: lightBg,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Column(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: accentOrange,
-                        size: 24,
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'El registro ha sido completado exitosamente',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: darkNavy,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ] else ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.orange.withOpacity(0.3),
-                      width: 1,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.scale_outlined,
-                        color: Colors.orange,
-                        size: 32,
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Próximos Pasos',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: darkNavy,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Debes llevar tu paquete a nuestras oficinas para:',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: textGray,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
-                      _buildPasoItem(
-                        icon: Icons.scale,
-                        texto: 'Pesaje oficial del paquete',
-                      ),
-                      const SizedBox(height: 8),
-                      _buildPasoItem(
-                        icon: Icons.attach_money,
-                        texto: 'Cálculo del valor final',
-                      ),
-                      const SizedBox(height: 8),
-                      _buildPasoItem(
-                        icon: Icons.payment,
-                        texto: 'Realizar el pago correspondiente',
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: accentOrange.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(
-                        Icons.info,
-                        color: accentOrange,
-                        size: 20,
-                      ),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Guarda este código para tu seguimiento',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: accentOrange,
-                            fontWeight: FontWeight.w600,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: successGreen.withOpacity(0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.check_circle_outline,
+                            color: successGreen,
+                            size: 36,
                           ),
                         ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _isAdmin
+                              ? '¡Registro Completado!'
+                              : '¡Solicitud Registrada!',
+                          style: TextStyle(
+                            fontSize: MediaQuery.of(context).size.width < 360
+                                ? 18
+                                : 20,
+                            fontWeight: FontWeight.w700,
+                            color: darkNavy,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: accentOrange.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: accentOrange.withOpacity(0.3),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              const Text(
+                                'Código de Envío',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: textGray,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  widget.encomiendaData.codigoEnvio,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: accentOrange,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: _copiarCodigo,
+                                      icon: const Icon(Icons.copy_rounded,
+                                          size: 14),
+                                      label: const Text(
+                                        'Copiar',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: accentOrange,
+                                        side: BorderSide(
+                                          color: accentOrange.withOpacity(0.5),
+                                          width: 1.5,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 8),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: _compartirCodigo,
+                                      icon: const Icon(Icons.share_rounded,
+                                          size: 14),
+                                      label: const Text(
+                                        'Compartir',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: successGreen,
+                                        side: BorderSide(
+                                          color: successGreen.withOpacity(0.5),
+                                          width: 1.5,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 8),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        if (_isAdmin) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: lightBg,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Column(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  color: accentOrange,
+                                  size: 20,
+                                ),
+                                SizedBox(height: 6),
+                                Text(
+                                  'El registro ha sido completado exitosamente',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: darkNavy,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ] else ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.orange.withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                const Icon(
+                                  Icons.scale_outlined,
+                                  color: Colors.orange,
+                                  size: 24,
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Próximos Pasos',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: darkNavy,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Debes llevar tu paquete a nuestras oficinas para:',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: textGray,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 8),
+                                _buildPasoItemCompacto(
+                                  icon: Icons.scale,
+                                  texto: 'Pesaje oficial del paquete',
+                                ),
+                                const SizedBox(height: 6),
+                                _buildPasoItemCompacto(
+                                  icon: Icons.attach_money,
+                                  texto: 'Cálculo del valor final',
+                                ),
+                                const SizedBox(height: 6),
+                                _buildPasoItemCompacto(
+                                  icon: Icons.payment,
+                                  texto: 'Realizar el pago correspondiente',
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: accentOrange.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(
+                                  Icons.info,
+                                  color: accentOrange,
+                                  size: 16,
+                                ),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Guarda este código para tu seguimiento',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: accentOrange,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                      ],
+                    ),
+                  ),
+                ),
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.fromLTRB(
+                    MediaQuery.of(context).size.width < 360 ? 16 : 20,
+                    0,
+                    MediaQuery.of(context).size.width < 360 ? 16 : 20,
+                    MediaQuery.of(context).size.width < 360 ? 16 : 20,
+                  ),
+                  child: ElevatedButton(
+                    onPressed: () {
+                      // ✅ Cerrar diálogo y volver al inicio
+                      Navigator.of(context).pop(); // Cierra el diálogo
+                      Navigator.of(context)
+                          .popUntil((route) => route.isFirst); // Va al inicio
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: accentOrange,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
+                      elevation: 2,
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Finalizar',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Icon(
+                          Icons.arrow_forward,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).popUntil((route) => route.isFirst);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: accentOrange,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Finalizar',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                      SizedBox(width: 8),
-                      Icon(
-                        Icons.arrow_forward,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildPasoItem({required IconData icon, required String texto}) {
+  Widget _buildPasoItemCompacto(
+      {required IconData icon, required String texto}) {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(6),
+          padding: const EdgeInsets.all(5),
           decoration: BoxDecoration(
             color: Colors.orange.withOpacity(0.2),
             borderRadius: BorderRadius.circular(6),
@@ -724,15 +876,15 @@ class _EnvioScreenState extends State<EnvioScreen> {
           child: Icon(
             icon,
             color: Colors.orange.shade700,
-            size: 16,
+            size: 14,
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         Expanded(
           child: Text(
             texto,
             style: const TextStyle(
-              fontSize: 13,
+              fontSize: 11,
               color: darkNavy,
               fontWeight: FontWeight.w500,
             ),
@@ -769,35 +921,43 @@ class _EnvioScreenState extends State<EnvioScreen> {
     super.dispose();
   }
 
+  // ✅ PROTECCIÓN CONTRA RETROCESO - SI REGRESA, VA AL INICIO
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 243, 248, 255),
-      body: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(
-            child: _buildHeader(context),
-          ),
-          SliverToBoxAdapter(
-            child: _buildProgressIndicator(),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.all(16),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                _buildFormCard(),
-                const SizedBox(height: 20),
-                _buildImagenSection(),
-                const SizedBox(height: 20),
-                _buildNavigationButtons(),
-                const SizedBox(height: 20),
-                _buildInfoNote(),
-                SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
-              ]),
+    return WillPopScope(
+      onWillPop: () async {
+        // ⚠️ SIEMPRE ir al inicio si presiona retroceso
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        return false;
+      },
+      child: Scaffold(
+        backgroundColor: const Color.fromARGB(255, 243, 248, 255),
+        body: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(
+              child: _buildHeader(context),
             ),
-          ),
-        ],
+            SliverToBoxAdapter(
+              child: _buildProgressIndicator(),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.all(16),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  _buildFormCard(),
+                  const SizedBox(height: 20),
+                  _buildImagenSection(),
+                  const SizedBox(height: 20),
+                  _buildNavigationButtons(),
+                  const SizedBox(height: 20),
+                  _buildInfoNote(),
+                  SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
+                ]),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -829,7 +989,9 @@ class _EnvioScreenState extends State<EnvioScreen> {
                       InkWell(
                         borderRadius: BorderRadius.circular(12),
                         onTap: () {
-                          Navigator.pop(context);
+                          // ✅ SIEMPRE ir al inicio
+                          Navigator.of(context)
+                              .popUntil((route) => route.isFirst);
                         },
                         child: Container(
                           padding: const EdgeInsets.all(10),
@@ -1524,7 +1686,10 @@ class _EnvioScreenState extends State<EnvioScreen> {
               border: Border.all(color: Color(0xFF940016), width: 2),
             ),
             child: OutlinedButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () {
+                // ✅ SIEMPRE ir al inicio
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              },
               style: OutlinedButton.styleFrom(
                 backgroundColor: Colors.white,
                 side: BorderSide.none,

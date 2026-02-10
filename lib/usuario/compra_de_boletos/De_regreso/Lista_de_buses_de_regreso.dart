@@ -1,4 +1,3 @@
-import 'package:app2tesis/usuario/compra_de_boletos/De_ida/Selecion_de_parada_desde_Tulcan.dart';
 import 'package:app2tesis/usuario/compra_de_boletos/De_regreso/seleccion_de_parada_desde_la_esperanza.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';

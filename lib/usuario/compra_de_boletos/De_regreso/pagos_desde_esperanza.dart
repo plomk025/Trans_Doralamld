@@ -45,6 +45,7 @@ class _PagoScreen2State extends State<PagoScreen2>
   bool _procesando = false;
   bool _validandoImagen = false;
   String? _mensajeValidacion;
+  bool _isAdmin = false;
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -62,8 +63,6 @@ class _PagoScreen2State extends State<PagoScreen2>
   final Color accentRed = const Color(0xFFEF4444);
   final Color accentYellow = const Color(0xFFF59E0B);
 
-  static const String ADMIN_EMAIL = 'admin@dominio.com';
-
   @override
   void initState() {
     super.initState();
@@ -78,6 +77,7 @@ class _PagoScreen2State extends State<PagoScreen2>
       ),
     );
     _fadeController.forward();
+    _verificarRolAdmin();
   }
 
   @override
@@ -87,8 +87,35 @@ class _PagoScreen2State extends State<PagoScreen2>
     super.dispose();
   }
 
-  bool _esAdministrador() {
-    return widget.userEmail.toLowerCase() == ADMIN_EMAIL.toLowerCase();
+  Future<void> _verificarRolAdmin() async {
+    final esAdmin = await _esAdministrador();
+    if (mounted) {
+      setState(() {
+        _isAdmin = esAdmin;
+      });
+    }
+  }
+
+  Future<bool> _esAdministrador() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return false;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('usuarios_registrados')
+          .doc(user.uid)
+          .get();
+
+      if (doc.exists) {
+        final rol = doc.data()?['rol']?.toString().toLowerCase() ?? '';
+        debugPrint('🔍 Rol del usuario: $rol');
+        return rol == 'administrador';
+      }
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error al verificar administrador: $e');
+      return false;
+    }
   }
 
   Future<bool> _validarComprobanteTransferencia(File imagen) async {
@@ -285,7 +312,7 @@ class _PagoScreen2State extends State<PagoScreen2>
                 ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white),
+            Icon(Icons.arrow_forward_ios, size: 16, color: roadGray),
           ],
         ),
       ),
@@ -433,19 +460,15 @@ class _PagoScreen2State extends State<PagoScreen2>
         return;
       }
 
-      // Obtener datos del bus - Buscar en ambas colecciones
+      // Obtener datos del bus
       String numeroBus = 'N/A';
       String fechaSalida = '';
       String horaSalida = '';
       String lugarSalida = '';
 
-      // Intentar en colección 'buses_tulcan_salida'
-      var busDoc = await db
-          .collection('buses_la_esperanza_salida')
-          .doc(widget.busId)
-          .get();
+      var busDoc =
+          await db.collection('buses_tulcan_salida').doc(widget.busId).get();
 
-      // Si no existe, intentar en 'buses_la_esperanza_salida'
       if (!busDoc.exists) {
         busDoc = await db
             .collection('buses_la_esperanza_salida')
@@ -467,7 +490,6 @@ class _PagoScreen2State extends State<PagoScreen2>
         }
       }
 
-      // ✅ CREAR NOTIFICACIÓN EN FIRESTORE (sin mostrar nada en pantalla)
       await db.collection('notificaciones').add({
         'userId': userIdFinal,
         'email': widget.userEmail,
@@ -489,7 +511,7 @@ class _PagoScreen2State extends State<PagoScreen2>
         'metodoPago': metodoPagoSeleccionado ?? 'efectivo',
         'estado': metodoPagoSeleccionado == 'transferencia'
             ? 'pendiente_verificacion'
-            : (_esAdministrador() ? 'aprobado' : 'pendiente_verificacion'),
+            : (_isAdmin ? 'aprobado' : 'pendiente_verificacion'),
         'precio': widget.total,
         'total': widget.total,
         'asiento': widget.asientoSeleccionado,
@@ -501,14 +523,13 @@ class _PagoScreen2State extends State<PagoScreen2>
         'fechaCompra': FieldValue.serverTimestamp(),
       });
 
-      debugPrint('✅ Notificación creada silenciosamente en Firestore');
+      debugPrint('✅ Notificación creada en Firestore');
     } catch (e) {
       debugPrint('❌ Error al crear notificación: $e');
     }
   }
 
   Future<void> _procesarPago() async {
-    // Validar método de pago seleccionado
     if (metodoPagoSeleccionado == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -523,7 +544,6 @@ class _PagoScreen2State extends State<PagoScreen2>
       return;
     }
 
-    // Validar comprobante si es transferencia
     if (metodoPagoSeleccionado == 'transferencia' &&
         _imagenComprobante == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -544,26 +564,20 @@ class _PagoScreen2State extends State<PagoScreen2>
     });
 
     try {
-      // ==================== PASO 1: Obtener userId de manera robusta ====================
       String userIdFinal = '';
 
-      // Prioridad 1: userId pasado como parámetro
       if (widget.userId.isNotEmpty) {
         userIdFinal = widget.userId;
         debugPrint('✅ userId obtenido del widget: $userIdFinal');
-      }
-      // Prioridad 2: Usuario actual de Firebase Auth
-      else if (FirebaseAuth.instance.currentUser != null) {
+      } else if (FirebaseAuth.instance.currentUser != null) {
         userIdFinal = FirebaseAuth.instance.currentUser!.uid;
         debugPrint('✅ userId obtenido de FirebaseAuth: $userIdFinal');
       }
 
-      // Validación crítica: si aún no tenemos userId
       if (userIdFinal.isEmpty) {
         debugPrint('⚠️ No se pudo obtener userId');
 
-        // Para admin, crear un ID temporal basado en email
-        if (_esAdministrador()) {
+        if (_isAdmin) {
           userIdFinal = 'admin_${DateTime.now().millisecondsSinceEpoch}';
           debugPrint('⚠️ Admin sin userId - usando temporal: $userIdFinal');
         } else {
@@ -572,7 +586,6 @@ class _PagoScreen2State extends State<PagoScreen2>
         }
       }
 
-      // Validar que tenemos email
       if (widget.userEmail.isEmpty) {
         throw Exception('Error: Email de usuario no disponible');
       }
@@ -582,8 +595,8 @@ class _PagoScreen2State extends State<PagoScreen2>
       debugPrint('   email: ${widget.userEmail}');
       debugPrint('   método: $metodoPagoSeleccionado');
       debugPrint('   asiento: ${widget.asientoSeleccionado}');
+      debugPrint('   esAdmin: $_isAdmin');
 
-      // ==================== PASO 2: Subir comprobante si es transferencia ====================
       String? urlComprobante;
       if (metodoPagoSeleccionado == 'transferencia') {
         debugPrint('📤 Subiendo comprobante...');
@@ -596,7 +609,6 @@ class _PagoScreen2State extends State<PagoScreen2>
         debugPrint('✅ Comprobante subido: $urlComprobante');
       }
 
-      // ==================== PASO 3: Determinar estados según método y rol ====================
       String estadoReserva;
       String estadoAsiento;
       String tipoNotificacion;
@@ -609,7 +621,7 @@ class _PagoScreen2State extends State<PagoScreen2>
         mensajeNotificacion =
             'Tu comprobante está en revisión. El asiento ${widget.asientoSeleccionado} quedará reservado hasta la verificación. Te notificaremos cuando sea aprobado.';
       } else if (metodoPagoSeleccionado == 'efectivo') {
-        if (_esAdministrador()) {
+        if (_isAdmin) {
           estadoReserva = 'aprobado';
           estadoAsiento = 'pagado';
           tipoNotificacion = 'compra_aprobada';
@@ -633,11 +645,8 @@ class _PagoScreen2State extends State<PagoScreen2>
       debugPrint('   reserva: $estadoReserva');
       debugPrint('   asiento: $estadoAsiento');
 
-      // ==================== PASO 4: Crear reserva en Firestore ====================
-      // ==================== PASO 4: Crear reserva en Firestore ====================
       debugPrint('📝 Creando documento de reserva...');
 
-// Preparar datos base de la reserva
       final reservaData = <String, dynamic>{
         'busId': widget.busId,
         'userId': userIdFinal,
@@ -651,10 +660,9 @@ class _PagoScreen2State extends State<PagoScreen2>
         'estado': estadoReserva,
         'fechaReserva': FieldValue.serverTimestamp(),
         'paradaNombre': widget.paradaNombre,
-        'procesadoPor': _esAdministrador() ? 'admin' : 'usuario',
+        'procesadoPor': _isAdmin ? 'admin' : 'usuario',
       };
 
-// SOLO agregar comprobanteUrl si existe (transferencia)
       if (urlComprobante != null && urlComprobante.isNotEmpty) {
         reservaData['comprobanteUrl'] = urlComprobante;
         debugPrint('✅ comprobanteUrl agregado: $urlComprobante');
@@ -667,12 +675,10 @@ class _PagoScreen2State extends State<PagoScreen2>
       final reservaRef = await db.collection('reservas').add(reservaData);
       debugPrint('✅ Reserva creada con ID: ${reservaRef.id}');
 
-// ==================== PASO 5: Crear en "comprados" si es admin con efectivo ====================
-      if (estadoReserva == 'aprobado' && _esAdministrador()) {
+      if (estadoReserva == 'aprobado' && _isAdmin) {
         debugPrint('📝 Creando documento en comprados (admin)...');
 
         try {
-          // Preparar datos base de comprado
           final compradoData = <String, dynamic>{
             'busId': widget.busId,
             'userId': userIdFinal,
@@ -690,24 +696,20 @@ class _PagoScreen2State extends State<PagoScreen2>
             'aprobadoPor': 'admin',
           };
 
-          // SOLO agregar comprobanteUrl si existe (no debería para efectivo admin)
           if (urlComprobante != null && urlComprobante.isNotEmpty) {
             compradoData['comprobanteUrl'] = urlComprobante;
           }
 
           await db.collection('comprados').add(compradoData);
-          debugPrint(
-              '✅ Documento de compra creado (sin comprobanteUrl para efectivo)');
+          debugPrint('✅ Documento de compra creado');
         } catch (e) {
           debugPrint('⚠️ Error al crear comprado (no crítico): $e');
         }
       }
 
-      // ==================== PASO 6: Actualizar asiento en el bus ====================
       debugPrint('📝 Actualizando asiento en bus...');
 
-      final busRef =
-          db.collection('buses_la_esperanza_salida').doc(widget.busId);
+      final busRef = db.collection('buses_tulcan_salida').doc(widget.busId);
       final busDoc = await busRef.get();
 
       if (!busDoc.exists) {
@@ -734,20 +736,17 @@ class _PagoScreen2State extends State<PagoScreen2>
             'Asiento ${widget.asientoSeleccionado} no encontrado en el bus');
       }
 
-      // Verificar que el asiento esté en estado válido
       final estadoActualAsiento = asientos[index]['estado'];
       debugPrint('🔍 Estado actual del asiento: $estadoActualAsiento');
 
       if (estadoActualAsiento != 'intentandoReservar' &&
           estadoActualAsiento != 'disponible') {
         debugPrint('⚠️ Asiento en estado: $estadoActualAsiento');
-        // Continuar de todas formas si es el mismo usuario
         if (asientos[index]['email'] != widget.userEmail) {
           throw Exception('El asiento ya no está disponible');
         }
       }
 
-      // Actualizar asiento
       asientos[index] = {
         'numero': widget.asientoSeleccionado,
         'estado': estadoAsiento,
@@ -763,10 +762,7 @@ class _PagoScreen2State extends State<PagoScreen2>
       await busRef.update({'asientos': asientos});
       debugPrint('✅ Asiento actualizado correctamente');
 
-      // ==================== PASO 7: Crear notificación ====================
-      // ==================== PASO 7: Crear notificación ====================
-// ⚠️ NO crear notificación si es administrador
-      if (!_esAdministrador()) {
+      if (!_isAdmin) {
         debugPrint('📝 Creando notificación...');
 
         try {
@@ -784,7 +780,6 @@ class _PagoScreen2State extends State<PagoScreen2>
         debugPrint('ℹ️ Usuario administrador - No se crea notificación');
       }
 
-      // ==================== PASO 8: Finalizar y mostrar resultado ====================
       if (!mounted) return;
 
       setState(() {
@@ -793,7 +788,6 @@ class _PagoScreen2State extends State<PagoScreen2>
 
       debugPrint('✅ ¡Proceso completado exitosamente!');
 
-      // Mostrar diálogo de éxito
       _mostrarDialogoResultado(estadoReserva, mensajeNotificacion);
     } catch (e, stackTrace) {
       debugPrint('❌ ERROR CRÍTICO en _procesarPago:');
@@ -806,7 +800,6 @@ class _PagoScreen2State extends State<PagoScreen2>
         _procesando = false;
       });
 
-      // Mostrar error al usuario con más detalles
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Column(
@@ -1047,7 +1040,7 @@ class _PagoScreen2State extends State<PagoScreen2>
                                       letterSpacing: 0.5,
                                     ),
                                   ),
-                                  if (_esAdministrador()) ...[
+                                  if (_isAdmin) ...[
                                     const SizedBox(width: 6),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
@@ -1092,7 +1085,7 @@ class _PagoScreen2State extends State<PagoScreen2>
                           children: [
                             Icon(
                               Icons.receipt_long_outlined,
-                              color: const Color(0xFF940016),
+                              color: Color(0xFF940016),
                               size: 25,
                             ),
                             SizedBox(width: 6),
@@ -1285,8 +1278,7 @@ class _PagoScreen2State extends State<PagoScreen2>
                   ),
                 ),
                 const SizedBox(height: 16),
-                // Solo mostrar transferencia si NO es administrador
-                if (!_esAdministrador()) ...[
+                if (!_isAdmin) ...[
                   _buildMetodoPago(
                     'transferencia',
                     'Transferencia Bancaria',
@@ -1299,7 +1291,7 @@ class _PagoScreen2State extends State<PagoScreen2>
                   'efectivo',
                   'Pago en Efectivo',
                   Icons.payments_outlined,
-                  _esAdministrador()
+                  _isAdmin
                       ? 'Confirma el pago inmediatamente'
                       : 'Paga en ventanilla - Requiere confirmación',
                 ),

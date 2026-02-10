@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:app2tesis/usuario/Pantallas_inicio/menu.dart';
+import 'package:app2tesis/administrador/coneccion.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -14,6 +14,8 @@ import 'package:intl/date_symbol_data_local.dart';
 
 import 'tema.dart';
 import 'usuario/Pantallas_inicio/iniciarsesion.dart';
+import 'administrador/offline_services.dart'; // ← Tu OfflineSyncService
+import 'user_presence_service.dart'; // ← Servicio de presencia del usuario
 
 // ==================== NOTIFICACIONES ====================
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -42,20 +44,17 @@ Future<void> showLocalNotification(RemoteMessage message) async {
     enableVibration: true,
     vibrationPattern: Int64List.fromList([0, 500, 200, 500]),
     icon: '@mipmap/ic_launcher',
-    // Agregar un color de acento para Android
     color: Colors.blue,
-    // Permitir expandir la notificación
     styleInformation: BigTextStyleInformation(
       notification.body ?? '',
       contentTitle: notification.title,
     ),
   );
 
-  final iosDetails = DarwinNotificationDetails(
+  const iosDetails = DarwinNotificationDetails(
     presentAlert: true,
     presentBadge: true,
     presentSound: true,
-    // Agregar categorías si las usas
     threadIdentifier: 'general',
   );
 
@@ -64,7 +63,6 @@ Future<void> showLocalNotification(RemoteMessage message) async {
     notification.title,
     notification.body,
     NotificationDetails(android: androidDetails, iOS: iosDetails),
-    // Payload para manejar la interacción
     payload: data['route'] ?? data['screen'] ?? '',
   );
 }
@@ -72,13 +70,27 @@ Future<void> showLocalNotification(RemoteMessage message) async {
 // ==================== MAIN ====================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicializar Firebase
   await Firebase.initializeApp();
+
+  // Inicializar formateo de fechas
   await initializeDateFormatting('es', null);
 
+  // Configurar handler de mensajes en background
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
+  // Solicitar permisos
   await requestPermissions();
+
+  // Inicializar notificaciones locales
   await initializeLocalNotifications();
+
+  // ✅ NUEVO: Inicializar sistema de sincronización offline
+  await _initializeOfflineSync();
+
+  // ✅ NUEVO: Configurar listener de autenticación para estado de presencia
+  UserPresenceService().setupAuthListener();
 
   runApp(
     ChangeNotifierProvider(
@@ -86,6 +98,42 @@ void main() async {
       child: const MyApp(),
     ),
   );
+}
+
+// ==================== INICIALIZAR SISTEMA OFFLINE ====================
+Future<void> _initializeOfflineSync() async {
+  try {
+    debugPrint('🚀 Inicializando sistema de sincronización offline...');
+
+    final connectivityManager = ConnectivitySyncManager();
+
+    // Configurar callbacks globales (opcional)
+    connectivityManager.onConnectivityChange = (isOnline) {
+      debugPrint(
+          '📡 Estado de conectividad: ${isOnline ? "ONLINE" : "OFFLINE"}');
+    };
+
+    connectivityManager.onSyncComplete = (result) {
+      if (result.success) {
+        debugPrint(
+            '✅ Sincronización completada: ${result.sincronizadas} operaciones');
+      } else {
+        debugPrint('⚠️ Sincronización con errores: ${result.message}');
+      }
+    };
+
+    connectivityManager.onPendingCountChange = (count) {
+      debugPrint('📊 Operaciones pendientes: $count');
+    };
+
+    // Inicializar el manager
+    await connectivityManager.initialize();
+
+    debugPrint(
+        '✅ Sistema de sincronización offline inicializado correctamente');
+  } catch (e) {
+    debugPrint('❌ Error al inicializar sistema offline: $e');
+  }
 }
 
 // ==================== PERMISOS ====================
@@ -129,13 +177,10 @@ Future<void> initializeLocalNotifications() async {
       android: androidSettings,
       iOS: iosSettings,
     ),
-    // Manejar cuando el usuario toca la notificación
     onDidReceiveNotificationResponse: (NotificationResponse response) {
       if (response.payload != null && response.payload!.isNotEmpty) {
         debugPrint(
             '🔔 Usuario tocó notificación con payload: ${response.payload}');
-        // Aquí puedes navegar a una pantalla específica
-        // navigatorKey.currentState?.pushNamed(response.payload!);
       }
     },
   );
@@ -156,7 +201,6 @@ Future<void> initializeLocalNotifications() async {
     ),
   );
 
-  // Canal adicional para notificaciones importantes
   await androidPlugin?.createNotificationChannel(
     const AndroidNotificationChannel(
       'important_channel',
@@ -209,11 +253,9 @@ class AppVersionService {
 
         showDialog(
           context: context,
-          barrierDismissible:
-              !obligatorio, // Solo se puede cerrar si no es obligatorio
+          barrierDismissible: !obligatorio,
           builder: (_) => PopScope(
-            canPop:
-                !obligatorio, // Solo se puede cerrar con back si no es obligatorio
+            canPop: !obligatorio,
             child: AlertDialog(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
@@ -324,13 +366,11 @@ class AppVersionService {
                 ],
               ),
               actions: [
-                // Botón de Descargar
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () async {
                       final uri = Uri.parse(urlAPK);
-
                       if (!await launchUrl(
                         uri,
                         mode: LaunchMode.externalApplication,
@@ -357,7 +397,6 @@ class AppVersionService {
                     ),
                   ),
                 ),
-                // Botón Omitir - Solo visible cuando NO es obligatorio
                 if (!obligatorio) ...[
                   const SizedBox(height: 8),
                   SizedBox(
@@ -435,10 +474,7 @@ Future<void> saveFCMToken() async {
       'email': user.email,
       'fcmToken': token,
       'lastTokenUpdate': FieldValue.serverTimestamp(),
-      'platform': Theme.of(WidgetsBinding
-              .instance.platformDispatcher.views.first as BuildContext)
-          .platform
-          .toString(),
+      'platform': 'mobile',
     }, SetOptions(merge: true));
 
     debugPrint('✅ Token FCM guardado en Firestore');
@@ -462,21 +498,70 @@ Future<void> saveFCMToken() async {
 // ==================== SUSCRIBIR A TÓPICOS ====================
 Future<void> subscribeToTopics() async {
   try {
-    // Suscribirse a un tópico general
     await FirebaseMessaging.instance.subscribeToTopic('todos');
     debugPrint('✅ Suscrito al tópico: todos');
-
-    // Puedes suscribirte a más tópicos según tu app
-    // await FirebaseMessaging.instance.subscribeToTopic('ofertas');
-    // await FirebaseMessaging.instance.subscribeToTopic('noticias');
   } catch (e) {
     debugPrint('❌ Error al suscribirse a tópicos: $e');
   }
 }
 
 // ==================== APP ====================
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    // Registrar el observador del ciclo de vida de la app
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    // Remover el observador cuando el widget se destruye
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // App en primer plano -> usuario conectado
+        debugPrint('📱 App en primer plano');
+        UserPresenceService().setUserOnline();
+        break;
+
+      case AppLifecycleState.paused:
+        // App en segundo plano -> usuario desconectado
+        debugPrint('📱 App en segundo plano');
+        UserPresenceService().setUserOffline();
+        break;
+
+      case AppLifecycleState.inactive:
+        // App inactiva (transición)
+        debugPrint('📱 App inactiva');
+        break;
+
+      case AppLifecycleState.detached:
+        // App terminada
+        debugPrint('📱 App terminada');
+        UserPresenceService().setUserOffline();
+        break;
+
+      case AppLifecycleState.hidden:
+        // App oculta (nuevo en Flutter 3.13+)
+        debugPrint('📱 App oculta');
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -539,7 +624,10 @@ class _AppInitializerState extends State<AppInitializer> {
       // Suscribirse a tópicos generales
       await subscribeToTopics();
 
-      // Manejar notificación que abrió la app (cuando estaba cerrada)
+      // ✅ NUEVO: Marcar usuario como conectado al iniciar
+      await UserPresenceService().setUserOnline();
+
+      // Manejar notificación que abrió la app
       final initialMessage =
           await FirebaseMessaging.instance.getInitialMessage();
       if (initialMessage != null) {
@@ -563,7 +651,6 @@ class _AppInitializerState extends State<AppInitializer> {
   }
 
   void _handleNotificationNavigation(Map<String, dynamic> data) {
-    // Aquí puedes navegar a pantallas específicas según el payload
     final route = data['route'] ?? data['screen'];
     if (route != null && route.isNotEmpty) {
       debugPrint('📍 Navegando a: $route');

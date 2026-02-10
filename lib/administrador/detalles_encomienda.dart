@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:app2tesis/administrador/coneccion.dart';
+import 'package:app2tesis/administrador/offline_services.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -36,20 +37,69 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
   static const Color accentOrange = Color(0xFFF59E0B);
 
   final TextEditingController _precioTipoController = TextEditingController();
-  final TextEditingController _pesoController =
-      TextEditingController(); // ✅ NUEVO
+  final TextEditingController _pesoController = TextEditingController();
+
   XFile? _imagenTransito;
   XFile? _imagenEntregada;
   String? _busSeleccionado;
   List<Map<String, dynamic>> _busesDisponibles = [];
   bool _isLoading = false;
+  bool _isOnline = true;
+  int _pendingOperations = 0;
 
   final ImagePicker _picker = ImagePicker();
+  final OfflineSyncService _syncService = OfflineSyncService();
+  final ConnectivitySyncManager _connectivityManager =
+      ConnectivitySyncManager();
 
   @override
   void initState() {
     super.initState();
     _cargarDatos();
+    _inicializarConectividad();
+  }
+
+  /// Inicializa el monitoreo de conectividad
+  Future<void> _inicializarConectividad() async {
+    // Configurar callbacks
+    _connectivityManager.onConnectivityChange = (isOnline) {
+      if (mounted) {
+        setState(() => _isOnline = isOnline);
+        if (isOnline) {
+          _mostrarExito('Conexión restablecida. Sincronizando...');
+        } else {
+          _mostrarInfo('Modo offline activado');
+        }
+      }
+    };
+
+    _connectivityManager.onSyncComplete = (result) {
+      if (mounted) {
+        if (result.success) {
+          _mostrarExito(
+              'Sincronización completada: ${result.sincronizadas} operaciones');
+        } else {
+          _mostrarAdvertencia('Error en sincronización: ${result.message}');
+        }
+      }
+    };
+
+    _connectivityManager.onPendingCountChange = (count) {
+      if (mounted) {
+        setState(() => _pendingOperations = count);
+      }
+    };
+
+    // Inicializar
+    await _connectivityManager.initialize();
+
+    // Verificar estado actual
+    _isOnline = await _connectivityManager.isOnline();
+    final pending = await _connectivityManager.getPendingOperations();
+
+    if (mounted) {
+      setState(() => _pendingOperations = pending.total);
+    }
   }
 
   void _cargarDatos() {
@@ -57,37 +107,24 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     final envio = widget.data['envio'] ?? {};
 
     _precioTipoController.text = (costos['precio_tipo'] ?? 0).toString();
-    _pesoController.text = envio['rango_peso'] ?? ''; // ✅ Cargar peso existente
+    _pesoController.text = envio['rango_peso'] ?? '';
 
     _cargarBuses();
   }
 
-// ✅ MÉTODO AUXILIAR: Normalizar texto para comparación
-
   Future<void> _cargarBuses() async {
     print('🔍 ====== INICIANDO CARGA DE BUSES ======');
-    print('📦 Cargando TODOS los buses de ambas colecciones...');
 
     try {
       List<Map<String, dynamic>> buses = [];
 
-      // 🔵 CARGAR TODOS LOS BUSES DE COLECCIÓN "buses" (Tulcán)
-      print('\n🔵 Cargando colección "buses"...');
+      // Cargar buses de Tulcán
       final busesSnapshot = await FirebaseFirestore.instance
           .collection('buses_tulcan_salida')
           .get();
 
-      print('📊 Total en "buses": ${busesSnapshot.docs.length}');
-
       for (var doc in busesSnapshot.docs) {
         final data = doc.data();
-
-        print('  🚌 Bus agregado:');
-        print('     - ID: ${doc.id}');
-        print('     - Número: ${data['numero']}');
-        print('     - Lugar salida: ${data['lugar_salida']}');
-        print('     - Hora: ${data['hora_salida']}');
-
         buses.add({
           'id': doc.id,
           'coleccion': 'buses_tulcan_salida',
@@ -99,24 +136,13 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         });
       }
 
-      // 🟢 CARGAR TODOS LOS BUSES DE COLECCIÓN "buses1" (Otros lugares)
-      print('\n🟢 Cargando colección "buses_la_esperanza_salida"...');
+      // Cargar buses de La Esperanza
       final buses1Snapshot = await FirebaseFirestore.instance
           .collection('buses_la_esperanza_salida')
           .get();
 
-      print(
-          '📊 Total en "buses_la_esperanza_salida": ${buses1Snapshot.docs.length}');
-
       for (var doc in buses1Snapshot.docs) {
         final data = doc.data();
-
-        print('  🚌 Bus agregado:');
-        print('     - ID: ${doc.id}');
-        print('     - Número: ${data['numero']}');
-        print('     - Lugar salida: ${data['lugar_salida']}');
-        print('     - Hora: ${data['hora_salida']}');
-
         buses.add({
           'id': doc.id,
           'coleccion': 'buses_la_esperanza_salida',
@@ -128,34 +154,12 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         });
       }
 
-      setState(() {
-        _busesDisponibles = buses;
-      });
-
-      print('\n✅ ====== RESUMEN ======');
-      print('Total buses cargados: ${_busesDisponibles.length}');
-      print('\n📋 Buses disponibles:');
-
-      // Agrupar por lugar de salida
-      Map<String, int> porLugar = {};
-      for (var bus in _busesDisponibles) {
-        final lugar = bus['lugar_salida'] ?? 'Sin lugar';
-        porLugar[lugar] = (porLugar[lugar] ?? 0) + 1;
-        print(
-            '  - Bus ${bus['numero']} | ${bus['lugar_salida']} | ${bus['hora_salida']} (${bus['coleccion']})');
-      }
-
-      print('\n📊 Resumen por lugar de salida:');
-      porLugar.forEach((lugar, cantidad) {
-        print('  - $lugar: $cantidad bus(es)');
-      });
-    } catch (e, stackTrace) {
-      print('\n❌ ERROR AL CARGAR BUSES: $e');
-      print('Stack trace: $stackTrace');
+      setState(() => _busesDisponibles = buses);
+      print('✅ Total buses cargados: ${_busesDisponibles.length}');
+    } catch (e) {
+      print('❌ ERROR AL CARGAR BUSES: $e');
       _mostrarError('Error al cargar buses: $e');
-      setState(() {
-        _busesDisponibles = [];
-      });
+      setState(() => _busesDisponibles = []);
     }
   }
 
@@ -217,38 +221,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     }
   }
 
-  Future<String?> _subirImagenConOffline(XFile imagen, String campo) async {
-    final connectivityResult = await Connectivity().checkConnectivity();
-    final rutaStorage =
-        'encomiendas/${widget.codigo}/$campo-${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-    if (connectivityResult == ConnectivityResult.none) {
-      final prefs = await SharedPreferences.getInstance();
-      final pendientes = prefs.getStringList('imagenes_pendientes') ?? [];
-
-      final imagenPendiente = json.encode({
-        'ruta_local': imagen.path,
-        'ruta_storage': rutaStorage,
-        'codigo_envio': widget.codigo,
-        'campo': 'imagenes.$campo',
-      });
-
-      pendientes.add(imagenPendiente);
-      await prefs.setStringList('imagenes_pendientes', pendientes);
-
-      return 'offline://${imagen.path}';
-    } else {
-      try {
-        final ref = FirebaseStorage.instance.ref().child(rutaStorage);
-        await ref.putFile(File(imagen.path));
-        return await ref.getDownloadURL();
-      } catch (e) {
-        _mostrarError('Error al subir imagen: $e');
-        return null;
-      }
-    }
-  }
-
   Future<void> _actualizarEncomienda() async {
     // Validaciones según estado
     if (widget.estado == 'pendiente') {
@@ -278,10 +250,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final updateData = <String, dynamic>{};
-      String nuevoEstado = '';
-
-      // ✅ Obtener UID del remitente
+      // Obtener UID del remitente
       final remitenteUid = widget.data['remitente']?['uid'];
       if (remitenteUid == null || remitenteUid.toString().isEmpty) {
         _mostrarError('No se encontró el UID del remitente');
@@ -289,121 +258,179 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         return;
       }
 
-      // Actualizar desde pendiente a en_transito
+      // Verificar conectividad
+      final hasConnection = await _syncService.hasConnection();
+
       if (widget.estado == 'pendiente') {
-        final precioTipo = double.parse(_precioTipoController.text.trim());
-        final peso = _pesoController.text.trim();
-
-        // ✅ Subir imagen de tránsito (con soporte offline)
-        String? urlTransito =
-            await _subirImagenConOffline(_imagenTransito!, 'transito');
-
-        updateData['costos.precio_tipo'] = precioTipo;
-        updateData['costos.total'] = precioTipo;
-        updateData['envio.rango_peso'] = peso;
-        updateData['estado'] = 'en_transito';
-        updateData['numero'] = _busesDisponibles
-            .firstWhere((b) => b['id'] == _busSeleccionado)['numero'];
-        updateData['hora_salida'] = DateTime.now();
-
-        if (urlTransito != null && !urlTransito.startsWith('offline://')) {
-          updateData['imagenes.transito'] = urlTransito;
-        }
-
-        nuevoEstado = 'en_transito';
-
-        // Asignar a bus
-        final busData = _busesDisponibles.firstWhere(
-          (b) => b['id'] == _busSeleccionado,
-        );
-
-        await FirebaseFirestore.instance
-            .collection(busData['coleccion'])
-            .doc(_busSeleccionado)
-            .set({
-          'encomiendas': FieldValue.arrayUnion([widget.codigo])
-        }, SetOptions(merge: true));
-      }
-      // Actualizar desde en_transito a entregado
-      else if (widget.estado == 'en_transito') {
-        // ✅ Verificar conectividad antes de subir
-        final connectivityResult = await Connectivity().checkConnectivity();
-
-        if (connectivityResult == ConnectivityResult.none) {
-          // ✅ SIN INTERNET: Guardar imagen localmente
-          final prefs = await SharedPreferences.getInstance();
-          final pendientes = prefs.getStringList('imagenes_pendientes') ?? [];
-
-          final rutaStorage =
-              'encomiendas/${widget.codigo}/entregada-${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-          final imagenPendiente = json.encode({
-            'ruta_local': _imagenEntregada!.path,
-            'ruta_storage': rutaStorage,
-            'codigo_envio': widget.codigo,
-            'campo': 'imagenes.entregada',
-            'uid_remitente':
-                remitenteUid, // ✅ Guardar UID para notificación posterior
-          });
-
-          pendientes.add(imagenPendiente);
-          await prefs.setStringList('imagenes_pendientes', pendientes);
-
-          // ✅ Actualizar estado a entregado INMEDIATAMENTE (sin imagen)
-          updateData['estado'] = 'entregado';
-          updateData['fecha_entrega'] = DateTime.now();
-          nuevoEstado = 'entregado';
-
-          print(
-              '📴 Sin internet: Imagen guardada localmente para subir después');
-          print('✅ Proceso completado offline, se sincronizará al conectarse');
-        } else {
-          // ✅ CON INTERNET: Subir imagen normalmente
-          String? urlEntregada =
-              await _subirImagenConOffline(_imagenEntregada!, 'entregada');
-
-          updateData['estado'] = 'entregado';
-          updateData['fecha_entrega'] = DateTime.now();
-
-          if (urlEntregada != null && !urlEntregada.startsWith('offline://')) {
-            updateData['imagenes.entregada'] = urlEntregada;
-          }
-
-          nuevoEstado = 'entregado';
-        }
+        await _procesarEstadoPendiente(remitenteUid, hasConnection);
+      } else if (widget.estado == 'en_transito') {
+        await _procesarEstadoEnTransito(remitenteUid, hasConnection);
       }
 
-      // ✅ Actualizar Firestore
-      await FirebaseFirestore.instance
-          .collection('encomiendas_registradas')
-          .doc(widget.codigo)
-          .update(updateData);
+      // Mostrar mensaje según conectividad
+      if (hasConnection) {
+        _mostrarExito('✅ Encomienda actualizada exitosamente');
+      } else {
+        _mostrarExito(
+            '📴 Actualización guardada. Se sincronizará al conectarse');
+      }
 
-      // ✅ CREAR NOTIFICACIÓN
-      await _crearNotificacion(remitenteUid, nuevoEstado);
+      // Actualizar contador de pendientes
+      final pending = await _connectivityManager.getPendingOperations();
+      setState(() => _pendingOperations = pending.total);
 
-      _mostrarExito('Encomienda actualizada exitosamente');
       Navigator.pop(context);
-    } catch (e, stackTrace) {
+    } catch (e) {
       print('❌ Error al actualizar: $e');
-      print('Stack trace: $stackTrace');
       _mostrarError('Error al actualizar: $e');
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _crearNotificacion(
+  /// Procesa actualización desde estado pendiente
+  Future<void> _procesarEstadoPendiente(
+      String remitenteUid, bool hasConnection) async {
+    final precioTipo = double.parse(_precioTipoController.text.trim());
+    final peso = _pesoController.text.trim();
+    final busData =
+        _busesDisponibles.firstWhere((b) => b['id'] == _busSeleccionado);
+
+    final updateData = <String, dynamic>{
+      'costos.precio_tipo': precioTipo,
+      'costos.total': precioTipo,
+      'envio.rango_peso': peso,
+      'estado': 'en_transito',
+      'numero': busData['numero'],
+      'hora_salida': DateTime.now(),
+    };
+
+    if (hasConnection) {
+      // ✅ CON INTERNET: Proceso normal
+      try {
+        // Subir imagen
+        final rutaStorage =
+            'encomiendas/${widget.codigo}/transito-${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final ref = FirebaseStorage.instance.ref().child(rutaStorage);
+        await ref.putFile(File(_imagenTransito!.path));
+        final urlImagen = await ref.getDownloadURL();
+
+        updateData['imagenes.transito'] = urlImagen;
+
+        // Actualizar Firestore
+        await FirebaseFirestore.instance
+            .collection('encomiendas_registradas')
+            .doc(widget.codigo)
+            .update(updateData);
+
+        // Asignar a bus
+        await FirebaseFirestore.instance
+            .collection(busData['coleccion'])
+            .doc(_busSeleccionado)
+            .set({
+          'encomiendas': FieldValue.arrayUnion([widget.codigo])
+        }, SetOptions(merge: true));
+
+        // Crear notificación
+        await _crearNotificacionOnline(remitenteUid, 'en_transito');
+      } catch (e) {
+        print('❌ Error en proceso online: $e');
+        rethrow;
+      }
+    } else {
+      // 📴 SIN INTERNET: Guardar para sincronización
+      print(
+          '📴 Modo offline: Guardando actualización para sincronizar después');
+
+      // Actualizar Firestore localmente (se sincronizará con Firebase)
+      await FirebaseFirestore.instance
+          .collection('encomiendas_registradas')
+          .doc(widget.codigo)
+          .update(updateData);
+
+      // Guardar actualización pendiente con imagen
+      await _syncService.guardarActualizacionPendiente(
+        codigoEncomienda: widget.codigo,
+        updateData: updateData,
+        coleccionBus: busData['coleccion'],
+        idBus: _busSeleccionado!,
+        rutaImagenLocal: _imagenTransito!.path,
+        campoImagen: 'imagenes.transito',
+      );
+
+      // Guardar notificación pendiente
+      await _guardarNotificacionPendiente(remitenteUid, 'en_transito');
+    }
+  }
+
+  /// Procesa actualización desde estado en tránsito
+  Future<void> _procesarEstadoEnTransito(
+      String remitenteUid, bool hasConnection) async {
+    final updateData = <String, dynamic>{
+      'estado': 'entregado',
+      'fecha_entrega': DateTime.now(),
+    };
+
+    if (hasConnection) {
+      // ✅ CON INTERNET: Proceso normal
+      try {
+        // Subir imagen
+        final rutaStorage =
+            'encomiendas/${widget.codigo}/entregada-${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final ref = FirebaseStorage.instance.ref().child(rutaStorage);
+        await ref.putFile(File(_imagenEntregada!.path));
+        final urlImagen = await ref.getDownloadURL();
+
+        updateData['imagenes.entregada'] = urlImagen;
+
+        // Actualizar Firestore
+        await FirebaseFirestore.instance
+            .collection('encomiendas_registradas')
+            .doc(widget.codigo)
+            .update(updateData);
+
+        // Crear notificación
+        await _crearNotificacionOnline(remitenteUid, 'entregado');
+      } catch (e) {
+        print('❌ Error en proceso online: $e');
+        rethrow;
+      }
+    } else {
+      // 📴 SIN INTERNET: Guardar para sincronización
+      print(
+          '📴 Modo offline: Guardando actualización para sincronizar después');
+
+      // Actualizar Firestore localmente
+      await FirebaseFirestore.instance
+          .collection('encomiendas_registradas')
+          .doc(widget.codigo)
+          .update(updateData);
+
+      // Guardar actualización pendiente con imagen
+      await _syncService.guardarActualizacionPendiente(
+        codigoEncomienda: widget.codigo,
+        updateData: updateData,
+        coleccionBus: '',
+        idBus: '',
+        rutaImagenLocal: _imagenEntregada!.path,
+        campoImagen: 'imagenes.entregada',
+      );
+
+      // Guardar notificación pendiente
+      await _guardarNotificacionPendiente(remitenteUid, 'entregado');
+    }
+  }
+
+  /// Crea notificación cuando hay conexión
+  Future<void> _crearNotificacionOnline(
       String uidRemitente, String nuevoEstado) async {
     try {
-      // ✅ Obtener datos del remitente
       final remitente = widget.data['remitente'] ?? {};
       final destinatario = widget.data['destinatario'] ?? {};
       final correoRemitente = remitente['correo'] ?? '';
       final nombreRemitente = remitente['nombre'] ?? '';
       final destinoCiudad = destinatario['ciudad'] ?? '';
 
-      // ✅ Textos según el estado
       String titulo = '';
       String mensaje = '';
       String accion = '';
@@ -428,7 +455,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
           accion = 'actualizacion';
       }
 
-      // ✅ 1. Crear notificación en Firestore (ya lo tenías)
+      // Crear notificación en Firestore
       await FirebaseFirestore.instance.collection('notificaciones').add({
         'uid': uidRemitente,
         'correo': correoRemitente,
@@ -443,74 +470,106 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         'accion': accion,
       });
 
-      print('✅ Notificación creada en Firestore para: $uidRemitente');
-      print('📧 Correo: $correoRemitente');
-
-      // ✅ 2. NUEVO: Enviar Push Notification a través del servidor
+      // Enviar push notification
       await _enviarNotificacionPush(
         uidRemitente: uidRemitente,
         titulo: titulo,
         mensaje: mensaje,
         codigoEncomienda: widget.codigo,
         estado: nuevoEstado,
-        userId: 'userId',
       );
+
+      print('✅ Notificación creada y enviada');
     } catch (e) {
       print('❌ Error al crear notificación: $e');
-      // No detenemos el proceso si falla la notificación
     }
   }
 
-// ==================== PASO 4: AGREGAR NUEVA FUNCIÓN PARA PUSH NOTIFICATIONS ====================
-// Agrega esta función nueva después de _crearNotificacion:
+  /// Guarda notificación para enviar después (offline)
+  Future<void> _guardarNotificacionPendiente(
+      String uidRemitente, String nuevoEstado) async {
+    final remitente = widget.data['remitente'] ?? {};
+    final destinatario = widget.data['destinatario'] ?? {};
+    final correoRemitente = remitente['correo'] ?? '';
+    final nombreRemitente = remitente['nombre'] ?? '';
+    final destinoCiudad = destinatario['ciudad'] ?? '';
+
+    String titulo = '';
+    String mensaje = '';
+    String accion = '';
+
+    switch (nuevoEstado) {
+      case 'en_transito':
+        titulo = 'Encomienda en Tránsito 🚚';
+        mensaje = destinoCiudad.isNotEmpty
+            ? 'Tu encomienda ${widget.codigo} está en camino hacia $destinoCiudad.'
+            : 'Tu encomienda ${widget.codigo} ha sido cargada en el bus y está en camino.';
+        accion = 'transito';
+        break;
+      case 'entregado':
+        titulo = 'Encomienda Entregada ✅';
+        mensaje =
+            'Tu encomienda ${widget.codigo} ha sido entregada exitosamente.';
+        accion = 'entregado';
+        break;
+      default:
+        titulo = 'Actualización de Encomienda 📬';
+        mensaje = 'El estado de tu encomienda ${widget.codigo} ha cambiado.';
+        accion = 'actualizacion';
+    }
+
+    await _syncService.guardarNotificacionPendiente(
+      uidRemitente: uidRemitente,
+      correoRemitente: correoRemitente,
+      nombreRemitente: nombreRemitente,
+      titulo: titulo,
+      mensaje: mensaje,
+      codigoEncomienda: widget.codigo,
+      estado: nuevoEstado,
+      accion: accion,
+    );
+
+    print('✅ Notificación guardada para enviar después');
+  }
+
   Future<void> _enviarNotificacionPush({
-    required String userId,
+    required String uidRemitente,
     required String titulo,
     required String mensaje,
-    required String uidRemitente,
     required String codigoEncomienda,
     required String estado,
   }) async {
     try {
-      // ✅ SOLO el dominio base
       const String baseUrl = 'https://notificaciones-1hoa.onrender.com';
+      final Uri url = Uri.parse('$baseUrl/api/notifications/send-to-user');
 
-      // ✅ Endpoint correcto (tal como está en Flask)
-      final Uri url = Uri.parse(
-        '$baseUrl/api/notifications/send-to-user',
-      );
-
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'userId': uidRemitente,
-          'title': titulo,
-          'body': mensaje,
-          'data': {
-            'tipo': 'encomienda',
-            'codigo': codigoEncomienda,
-            'estado': estado,
-            'accion': 'cambio_estado',
-            'timestamp': DateTime.now().toIso8601String(),
-          },
-          'channelId': 'encomiendas_channel',
-        }),
-      );
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'userId': uidRemitente,
+              'title': titulo,
+              'body': mensaje,
+              'data': {
+                'tipo': 'encomienda',
+                'codigo': codigoEncomienda,
+                'estado': estado,
+                'accion': 'cambio_estado',
+                'timestamp': DateTime.now().toIso8601String(),
+              },
+              'channelId': 'encomiendas_channel',
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
         print('✅ Push notification enviada exitosamente');
-        print('📱 Email destinatario: ${responseData['email']}');
-        print('🆔 Message ID: ${responseData['messageId']}');
       } else {
         print('⚠️ Error al enviar push notification: ${response.statusCode}');
-        print('📄 Response: ${response.body}');
       }
     } catch (e) {
       print('❌ Error en _enviarPushNotification: $e');
-      // No lanzar excepción para no interrumpir el flujo principal
-      // La notificación se guardó en Firestore de todas formas
     }
   }
 
@@ -534,11 +593,32 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     );
   }
 
+  void _mostrarInfo(String mensaje) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: accentBlue,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _mostrarAdvertencia(String mensaje) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: accentOrange,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final remitente = widget.data['remitente'] ?? {};
     final destinatario = widget.data['destinatario'] ?? {};
     final envio = widget.data['envio'] ?? {};
+
     return Scaffold(
       backgroundColor: lightGray,
       appBar: AppBar(
@@ -548,14 +628,74 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
           icon: const Icon(Icons.arrow_back_ios_new, color: darkGray),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          widget.codigo,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
-            color: darkGray,
-          ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.codigo,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 18,
+                color: darkGray,
+              ),
+            ),
+            // Indicador de estado de conexión
+            Row(
+              children: [
+                Icon(
+                  _isOnline ? Icons.cloud_done : Icons.cloud_off,
+                  size: 12,
+                  color: _isOnline ? successGreen : warningRed,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _isOnline ? 'Conectado' : 'Sin conexión',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: _isOnline ? successGreen : warningRed,
+                  ),
+                ),
+                if (_pendingOperations > 0) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: accentOrange,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '$_pendingOperations pendientes',
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
         ),
+        actions: [
+          // Botón de sincronización manual
+          if (_pendingOperations > 0 && _isOnline)
+            IconButton(
+              icon: const Icon(Icons.sync, color: accentBlue),
+              tooltip: 'Sincronizar ahora',
+              onPressed: () async {
+                final result =
+                    await _connectivityManager.sincronizarManualmente();
+                if (result.success) {
+                  _mostrarExito('Sincronización exitosa');
+                } else {
+                  _mostrarError(result.message);
+                }
+              },
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -584,7 +724,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
             if (widget.estado == 'pendiente') ...[
               _buildPrecioCard(),
               const SizedBox(height: 20),
-              _buildPesoCard(), // ✅ NUEVO: Campo de peso
+              _buildPesoCard(),
               const SizedBox(height: 20),
               _buildBusesCard(),
               const SizedBox(height: 20),
@@ -622,9 +762,14 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : const Icon(Icons.check_circle),
+                      : Icon(_isOnline ? Icons.check_circle : Icons.save),
                   label: Text(
-                      _isLoading ? 'Actualizando...' : 'Actualizar Estado'),
+                    _isLoading
+                        ? 'Procesando...'
+                        : _isOnline
+                            ? 'Actualizar Estado'
+                            : 'Guardar (se sincronizará)',
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: successGreen,
                     foregroundColor: Colors.white,
@@ -764,7 +909,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(
-                labelText: 'Precio  *',
+                labelText: 'Precio *',
                 hintText: '0.00',
                 prefixIcon: const Icon(Icons.attach_money, color: accentOrange),
                 border: OutlineInputBorder(
@@ -782,7 +927,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     );
   }
 
-  // ✅ NUEVO: Widget para ingresar peso manualmente
   Widget _buildPesoCard() {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -820,7 +964,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
               keyboardType: TextInputType.text,
               decoration: InputDecoration(
                 labelText: 'Peso *',
-                hintText: ' 5 kg, 2.5 kg, 10 kg',
+                hintText: '5 kg, 2.5 kg, 10 kg',
                 prefixIcon:
                     const Icon(Icons.monitor_weight, color: successGreen),
                 border: OutlineInputBorder(
@@ -839,7 +983,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
   }
 
   Widget _buildBusesCard() {
-    // Agrupar buses por lugar de salida
     Map<String, List<Map<String, dynamic>>> busesPorLugar = {};
     for (var bus in _busesDisponibles) {
       final lugar = bus['lugar_salida']?.toString() ?? 'Sin lugar';
@@ -865,11 +1008,8 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                     color: accentBlue.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
-                    Icons.directions_bus,
-                    color: accentBlue,
-                    size: 24,
-                  ),
+                  child: const Icon(Icons.directions_bus,
+                      color: accentBlue, size: 24),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -898,66 +1038,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
               ],
             ),
             const SizedBox(height: 16),
-
-            // ───────── INFO BUSES CARGADOS ─────────
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.info_outline,
-                          size: 16, color: Colors.blue.shade700),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Buses disponibles: ${_busesDisponibles.length}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.blue.shade900,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (busesPorLugar.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: busesPorLugar.entries.map((entry) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.shade100,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '${entry.key}: ${entry.value.length}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.blue.shade900,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // ───────── DROPDOWN AGRUPADO ─────────
             if (_busesDisponibles.isNotEmpty)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -976,7 +1056,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                       final busesDelLugar = entry.value;
 
                       return [
-                        // Encabezado del grupo
                         DropdownMenuItem<String>(
                           enabled: false,
                           value: null,
@@ -984,7 +1063,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                             padding: const EdgeInsets.symmetric(vertical: 8),
                             child: Text(
                               '📍 $lugar',
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w900,
                                 color: accentBlue,
@@ -992,10 +1071,8 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                             ),
                           ),
                         ),
-                        // Buses del grupo
                         ...busesDelLugar.map((bus) {
                           String fechaTexto = 'Sin fecha';
-
                           if (bus['fecha_salida'] != null) {
                             try {
                               if (bus['fecha_salida'] is Timestamp) {
@@ -1021,9 +1098,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                                     children: [
                                       Container(
                                         padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
+                                            horizontal: 6, vertical: 2),
                                         decoration: BoxDecoration(
                                           color: bus['coleccion'] ==
                                                   'buses_tulcan_salida'
@@ -1060,10 +1135,8 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                                   const SizedBox(height: 2),
                                   Text(
                                     '$fechaTexto | ${bus['hora_salida']} | ${bus['ruta'] ?? 'Sin ruta'}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: mediumGray,
-                                    ),
+                                    style: const TextStyle(
+                                        fontSize: 11, color: mediumGray),
                                   ),
                                 ],
                               ),
@@ -1072,21 +1145,12 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                         }).toList(),
                       ];
                     }).toList(),
-                    onChanged: (value) {
-                      setState(() => _busSeleccionado = value);
-                      if (value != null) {
-                        print('🚌 Bus seleccionado: $value');
-                        final busSeleccionado = _busesDisponibles.firstWhere(
-                          (b) => b['id'] == value,
-                        );
-                        print('📋 Detalles: ${busSeleccionado}');
-                      }
-                    },
+                    onChanged: (value) =>
+                        setState(() => _busSeleccionado = value),
                   ),
                 ),
               )
             else
-              // ───────── SIN BUSES ─────────
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1094,46 +1158,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: warningRed.withOpacity(0.3)),
                 ),
-                child: Column(
-                  children: [
-                    Row(
-                      children: const [
-                        Icon(Icons.warning, color: warningRed, size: 20),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'No hay buses registrados en el sistema',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: darkGray,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        print('🔄 Recargando buses...');
-                        _cargarBuses();
-                      },
-                      icon: const Icon(Icons.refresh, size: 16),
-                      label: const Text('Recargar buses'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: accentBlue,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                child: const Text('No hay buses disponibles'),
               ),
           ],
         ),
@@ -1212,11 +1237,8 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                                 color: color,
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(
-                                Icons.check,
-                                color: Colors.white,
-                                size: 16,
-                              ),
+                              child: const Icon(Icons.check,
+                                  color: Colors.white, size: 16),
                             ),
                           ),
                         ],
@@ -1247,7 +1269,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
   @override
   void dispose() {
     _precioTipoController.dispose();
-    _pesoController.dispose(); // ✅ Dispose del nuevo controlador
+    _pesoController.dispose();
     super.dispose();
   }
 }

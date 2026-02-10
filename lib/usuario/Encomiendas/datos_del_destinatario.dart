@@ -16,7 +16,6 @@ class _DestinatarioScreenState extends State<DestinatarioScreen> {
   static const Color primaryBusBlue = Color(0xFF940016);
   static const Color accentOrange = Color(0xFF940016);
   static const Color darkNavy = Color(0xFF0F172A);
-  static const Color roadGray = Color(0xFF334155);
   static const Color lightBg = Color(0xFFF1F5F9);
   static const Color textGray = Color(0xFF475569);
   static const Color successGreen = Color(0xFF059669);

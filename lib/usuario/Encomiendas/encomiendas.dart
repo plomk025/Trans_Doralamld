@@ -1,4 +1,3 @@
-import 'package:app2tesis/usuario/Encomiendas/datos_encomienda.dart';
 import 'package:app2tesis/usuario/Encomiendas/datos_remitente.dart';
 import 'package:app2tesis/usuario/Encomiendas/rastreo.dart';
 import 'package:flutter/material.dart';

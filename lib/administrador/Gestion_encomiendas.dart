@@ -11,8 +11,6 @@ import 'dart:convert';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 
 class ConfiguracionEncomiendas extends StatefulWidget {
   const ConfiguracionEncomiendas({super.key});
@@ -28,15 +26,9 @@ const String NOTIFICATIONS_SERVER_URL =
 class _ConfiguracionEncomiendasState extends State<ConfiguracionEncomiendas>
     with SingleTickerProviderStateMixin {
   // Paleta de colores (misma que MenuOpcionesScreen)
-  static const Color primaryBusBlue = Color(0xFF1E40AF);
-  static const Color accentOrange = Color(0xFFEA580C);
-  static const Color darkNavy = Color(0xFF0F172A);
-  static const Color roadGray = Color(0xFF334155);
-  static const Color lightBg = Color(0xFFF1F5F9);
+
   static const Color textGray = Color(0xFF475569);
-  static const Color successGreen = Color(0xFF059669);
-  static const Color errorRed = Color(0xFFEF4444);
-  static const Color warningYellow = Color(0xFFF59E0B);
+
   static const Color mainRed = Color(0xFF940016);
 
   late TabController _tabController;

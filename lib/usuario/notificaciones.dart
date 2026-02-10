@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
+// ==================== PANTALLA PRINCIPAL ====================
 class NotificacionesScreen extends StatefulWidget {
   final String userEmail;
 
@@ -18,50 +20,65 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
     with SingleTickerProviderStateMixin {
   final FirebaseFirestore db = FirebaseFirestore.instance;
 
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
+  // ── Colores modernos ──
+  static const Color bgPrimary = Color(0xFFF8F9FA);
+  static const Color bgCard = Color(0xFFFFFFFF);
+  static const Color textPrimary = Color(0xFF1A1A1A);
+  static const Color textSecondary = Color(0xFF6B7280);
+  static const Color accentBlue = Color(0xFF3B82F6);
+  static const Color accentGreen = Color(0xFF10B981);
+  static const Color accentOrange = Color(0xFFF59E0B);
+  static const Color accentRed = Color(0xFFEF4444);
+  static const Color accentPurple = Color(0xFF8B5CF6);
+  static const Color dividerColor = Color(0xFFE5E7EB);
+  static const Color unreadBg = Color(0xFFF0F9FF);
 
-  // Paleta de colores inspirada en transporte de buses
-  final Color primaryBusBlue = const Color.fromARGB(255, 243, 248, 255);
-  final Color accentOrange = const Color(0xFFEA580C);
-  final Color darkNavy = const Color(0xFF0F172A);
-  final Color roadGray = const Color(0xFF334155);
-  final Color lightBg = const Color(0xFFF1F5F9);
-  final Color textGray = const Color(0xFF475569);
-  final Color successGreen = const Color(0xFF059669);
-  final Color accentBlue = const Color(0xFF1E40AF);
-  final Color mainRed = const Color(0xFF940016);
-  final Color unreadBg = const Color(0xFFFEF3C7);
-  final Color borderColor = const Color(0xFFE5E7EB);
+  late AnimationController _animController;
+  late Animation<double> _fadeAnim;
 
   @override
   void initState() {
     super.initState();
     timeago.setLocaleMessages('es', timeago.EsMessages());
-
-    _fadeController = AnimationController(
+    _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 400),
     );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _fadeController,
-        curve: Curves.easeOut,
-      ),
+    _fadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animController, curve: Curves.easeOut),
     );
-    _fadeController.forward();
+    _animController.forward();
   }
 
   @override
   void dispose() {
-    _fadeController.dispose();
+    _animController.dispose();
     super.dispose();
   }
 
-  Future<void> _marcarComoLeida(String notificacionId, int tipoMensaje) async {
+  // ── Utilidades ──
+  String _sanitizeEmail(String email) =>
+      email.replaceAll('.', '_').replaceAll('@', '_at_');
+
+  bool _esMensaje3Leido(Map<String, dynamic> data) {
+    if (data['leida3'] == null) return false;
+    if (data['leida3'] is Map)
+      return (data['leida3'] as Map)[_sanitizeEmail(widget.userEmail)] == true;
+    if (data['leida3'] is bool) return data['leida3'] as bool;
+    return false;
+  }
+
+  bool _estaOcultadaParaUsuario(Map<String, dynamic> data) {
+    if (data['ocultadoPara'] == null) return false;
+    if (data['ocultadoPara'] is Map)
+      return (data['ocultadoPara'] as Map)[_sanitizeEmail(widget.userEmail)] ==
+          true;
+    return false;
+  }
+
+  Future<void> _marcarComoLeida(String docId, int tipoMensaje) async {
     try {
       Map<String, dynamic> updateData = {};
-
       switch (tipoMensaje) {
         case 1:
           updateData = {'leida': true};
@@ -72,120 +89,74 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
         case 3:
           updateData = {'leida3.${_sanitizeEmail(widget.userEmail)}': true};
           break;
-        case 4: // Notificación de encomienda
+        case 4:
           updateData = {'leida': true};
           break;
       }
-
-      await db
-          .collection('notificaciones')
-          .doc(notificacionId)
-          .update(updateData);
+      await db.collection('notificaciones').doc(docId).update(updateData);
     } catch (e) {
-      print('Error al marcar notificación como leída: $e');
+      print('Error marcar leída: $e');
     }
   }
 
-  Future<void> _eliminarNotificacion(
-      String notificacionId, bool esGlobal) async {
+  Future<void> _eliminarNotificacion(String docId, bool esGlobal) async {
     try {
       if (esGlobal) {
-        await db.collection('notificaciones').doc(notificacionId).update({
+        await db.collection('notificaciones').doc(docId).update({
           'ocultadoPara.${_sanitizeEmail(widget.userEmail)}': true,
         });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Notificación ocultada'),
-            backgroundColor: successGreen,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            duration: const Duration(seconds: 2),
-          ),
-        );
       } else {
-        await db.collection('notificaciones').doc(notificacionId).delete();
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Notificación eliminada'),
-            backgroundColor: successGreen,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        await db.collection('notificaciones').doc(docId).delete();
       }
+      _mostrarSnackBar(
+          esGlobal ? 'Notificación ocultada' : 'Notificación eliminada');
     } catch (e) {
-      print('Error al eliminar notificación: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Error al eliminar la notificación'),
-          backgroundColor: accentOrange,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+      print('Error eliminar: $e');
+      _mostrarSnackBar('Error al procesar');
+    }
+  }
+
+  void _mostrarSnackBar(String mensaje) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          mensaje,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
           ),
         ),
-      );
-    }
+        backgroundColor: textPrimary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 90),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
-  String _sanitizeEmail(String email) {
-    return email.replaceAll('.', '_').replaceAll('@', '_at_');
+  // ── Copiar al portapapeles ──
+  Future<void> _copiarAlPortapapeles(String texto) async {
+    await Clipboard.setData(ClipboardData(text: texto));
+    _mostrarSnackBar('Código copiado: $texto');
   }
 
-  bool _esMensaje3Leido(Map<String, dynamic> data) {
-    if (data['leida3'] == null) return false;
-
-    if (data['leida3'] is Map) {
-      final leida3Map = data['leida3'] as Map<String, dynamic>;
-      final sanitizedEmail = _sanitizeEmail(widget.userEmail);
-      return leida3Map[sanitizedEmail] == true;
-    }
-
-    if (data['leida3'] is bool) {
-      return data['leida3'] as bool;
-    }
-
-    return false;
-  }
-
-  bool _estaOcultadaParaUsuario(Map<String, dynamic> data) {
-    if (data['ocultadoPara'] == null) return false;
-
-    if (data['ocultadoPara'] is Map) {
-      final ocultadoMap = data['ocultadoPara'] as Map<String, dynamic>;
-      final sanitizedEmail = _sanitizeEmail(widget.userEmail);
-      return ocultadoMap[sanitizedEmail] == true;
-    }
-
-    return false;
-  }
-
+  // ── Expandir docs en items individuales ──
   List<Map<String, dynamic>> _expandirNotificaciones(
       List<QueryDocumentSnapshot> docs) {
-    List<Map<String, dynamic>> notificacionesExpandidas = [];
-
+    List<Map<String, dynamic>> items = [];
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
       final docId = doc.id;
-
       bool esGlobal =
           data['mensaje3'] != null && data['mensaje3'].toString().isNotEmpty;
-      if (esGlobal && _estaOcultadaParaUsuario(data)) {
-        continue;
-      }
-
+      if (esGlobal && _estaOcultadaParaUsuario(data)) continue;
       bool esEncomienda = data['tipo'] == 'encomienda';
 
       if (esEncomienda) {
         if (data['correo'] == widget.userEmail) {
-          notificacionesExpandidas.add({
+          items.add({
             'docId': docId,
             'mensaje': data['titulo'] ?? 'Encomienda Actualizada',
             'descripcion': data['mensaje2'] ?? data['mensaje'] ?? '',
@@ -201,7 +172,7 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
         }
       } else {
         if (data['mensaje'] != null && data['mensaje'].toString().isNotEmpty) {
-          notificacionesExpandidas.add({
+          items.add({
             'docId': docId,
             'mensaje': data['mensaje'],
             'asiento': data['asiento'],
@@ -212,24 +183,22 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
             'esEncomienda': false,
           });
         }
-
         if (data['mensaje2'] != null &&
             data['mensaje2'].toString().isNotEmpty) {
-          notificacionesExpandidas.add({
+          items.add({
             'docId': docId,
             'mensaje': data['mensaje2'],
             'asiento': data['asiento2'] ?? data['asiento'],
-            'fecha': data['fecha'] ?? null,
+            'fecha': data['fecha'],
             'leida': data['leida2'] ?? false,
             'tipoMensaje': 2,
             'esGlobal': false,
             'esEncomienda': false,
           });
         }
-
         if (data['mensaje3'] != null &&
             data['mensaje3'].toString().isNotEmpty) {
-          notificacionesExpandidas.add({
+          items.add({
             'docId': docId,
             'mensaje': data['mensaje3'],
             'asiento': data['asiento3'] ?? 'INFO',
@@ -242,219 +211,58 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
         }
       }
     }
-
-    notificacionesExpandidas.sort((a, b) {
-      if (a['leida'] != b['leida']) {
-        return a['leida'] ? 1 : -1;
-      }
-      if (a['fecha'] != null && b['fecha'] != null) {
+    items.sort((a, b) {
+      if (a['leida'] != b['leida']) return a['leida'] ? 1 : -1;
+      if (a['fecha'] != null && b['fecha'] != null)
         return (b['fecha'] as Timestamp).compareTo(a['fecha'] as Timestamp);
-      }
       return 0;
     });
-
-    return notificacionesExpandidas;
+    return items;
   }
 
+  // ── Contar no leídas ──
+  int _contarNoLeidas(List<QueryDocumentSnapshot> docs) {
+    int count = 0;
+    for (var doc in docs) {
+      final data = doc.data() as Map<String, dynamic>;
+      bool esEncomienda = data['tipo'] == 'encomienda';
+      bool esDelUsuario = data['email'] == widget.userEmail;
+      bool tieneMensaje3 =
+          data['mensaje3'] != null && data['mensaje3'].toString().isNotEmpty;
+
+      if (esEncomienda) {
+        if (data['correo'] == widget.userEmail &&
+            (data['leida'] ?? false) == false) count++;
+        continue;
+      }
+      if (tieneMensaje3 && _estaOcultadaParaUsuario(data)) continue;
+      if (!esDelUsuario && !tieneMensaje3) continue;
+
+      if (esDelUsuario &&
+          !(data['leida'] ?? false) &&
+          data['mensaje'] != null &&
+          data['mensaje'].toString().isNotEmpty) count++;
+
+      if (esDelUsuario &&
+          !(data['leida2'] ?? false) &&
+          data['mensaje2'] != null &&
+          data['mensaje2'].toString().isNotEmpty) count++;
+
+      if (tieneMensaje3 && !_esMensaje3Leido(data)) count++;
+    }
+    return count;
+  }
+
+  // ── BUILD ──
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: primaryBusBlue,
-      body: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          _buildHeader(),
-          _buildNotificacionesList(),
-        ],
-      ),
+      backgroundColor: bgPrimary,
+      body: _buildNotificacionesList(),
     );
   }
 
-  Widget _buildHeader() {
-    return SliverToBoxAdapter(
-      child: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color.fromARGB(255, 243, 248, 255),
-              Color.fromARGB(255, 245, 249, 255)
-            ],
-          ),
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.1),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: const Icon(
-                              Icons.notifications_active_rounded,
-                              color: Color(0xFF940016),
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'NOTIFICACIONES',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color.fromARGB(255, 36, 35, 35),
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                              Text(
-                                'Actualizaciones de viajes',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                  color: Color.fromARGB(255, 38, 38, 39),
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      StreamBuilder<QuerySnapshot>(
-                        stream: db.collection('notificaciones').snapshots(),
-                        builder: (context, snapshot) {
-                          int count = 0;
-                          if (snapshot.hasData) {
-                            final notificacionesFiltradas =
-                                snapshot.data!.docs.where((doc) {
-                              final data = doc.data() as Map<String, dynamic>;
-
-                              bool esEncomienda = data['tipo'] == 'encomienda';
-                              bool esGlobal = data['mensaje3'] != null &&
-                                  data['mensaje3'].toString().isNotEmpty;
-
-                              if (esEncomienda) {
-                                return data['correo'] == widget.userEmail;
-                              }
-
-                              if (esGlobal && _estaOcultadaParaUsuario(data)) {
-                                return false;
-                              }
-
-                              if (esGlobal) {
-                                return true;
-                              }
-                              if (data['email'] == widget.userEmail) {
-                                return true;
-                              }
-                              return false;
-                            }).toList();
-
-                            final expandidas = _expandirNotificaciones(
-                                notificacionesFiltradas);
-                            count = expandidas.where((n) => !n['leida']).length;
-                          }
-
-                          return Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: count > 0
-                                  ? const Color(0xFF940016)
-                                  : Colors.grey.shade300,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: count > 0
-                                    ? const Color(0xFF940016).withOpacity(0.2)
-                                    : Colors.grey.shade400,
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  count > 0
-                                      ? Icons.circle_notifications
-                                      : Icons.check_circle_rounded,
-                                  color: Colors.white,
-                                  size: 14,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  count > 0 ? '$count' : 'Al día',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                    letterSpacing: 1,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      )
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  const Text(
-                    'Mis Notificaciones',
-                    style: TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.w900,
-                      color: Color.fromARGB(255, 36, 35, 35),
-                      height: 1.1,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 340),
-                    child: const Text(
-                      'Mantente informado sobre tus reservas, viajes y encomiendas',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color.fromARGB(255, 71, 74, 76),
-                        fontWeight: FontWeight.w500,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
+  // ── Lista ──
   Widget _buildNotificacionesList() {
     return StreamBuilder<QuerySnapshot>(
       stream: db
@@ -463,182 +271,142 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return SliverFillRemaining(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 50,
-                    height: 50,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      valueColor: AlwaysStoppedAnimation<Color>(mainRed),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Cargando notificaciones...',
-                    style: TextStyle(
-                      color: textGray,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
+          return Center(
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              valueColor: AlwaysStoppedAnimation<Color>(accentBlue),
             ),
           );
         }
-
         if (snapshot.hasError) {
-          return SliverFillRemaining(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(32),
-                    decoration: BoxDecoration(
-                      color: lightBg,
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Icon(Icons.error_outline,
-                        size: 60, color: accentOrange),
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: accentRed.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Error al cargar',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: darkNavy,
-                    ),
+                  child: const Icon(
+                    Icons.error_outline_rounded,
+                    color: accentRed,
+                    size: 32,
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'No se pudieron cargar las notificaciones',
-                    style: TextStyle(fontSize: 14, color: textGray),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Error al cargar',
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           );
         }
-
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
           return _buildEstadoVacio();
-        }
 
-        final notificacionesFiltradas = snapshot.data!.docs.where((doc) {
+        final filtrados = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
-
           bool esGlobal = data['mensaje3'] != null &&
               data['mensaje3'].toString().isNotEmpty;
-          if (esGlobal && _estaOcultadaParaUsuario(data)) {
-            return false;
-          }
-
+          if (esGlobal && _estaOcultadaParaUsuario(data)) return false;
           if (data['tipo'] == 'encomienda' &&
-              data['correo'] == widget.userEmail) {
-            return true;
-          }
-
-          if (esGlobal) {
-            return true;
-          }
-
-          if (data['email'] == widget.userEmail) {
-            return true;
-          }
-
+              data['correo'] == widget.userEmail) return true;
+          if (esGlobal) return true;
+          if (data['email'] == widget.userEmail) return true;
           return false;
         }).toList();
 
-        if (notificacionesFiltradas.isEmpty) {
-          return _buildEstadoVacio();
-        }
+        if (filtrados.isEmpty) return _buildEstadoVacio();
 
-        final notificacionesExpandidas =
-            _expandirNotificaciones(notificacionesFiltradas);
+        final items = _expandirNotificaciones(filtrados);
+        if (items.isEmpty) return _buildEstadoVacio();
 
-        if (notificacionesExpandidas.isEmpty) {
-          return _buildEstadoVacio();
-        }
-
-        return SliverPadding(
-          padding: const EdgeInsets.all(16),
-          sliver: SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                return FadeTransition(
-                  opacity: _fadeAnimation,
-                  child:
-                      _buildNotificacionCard(notificacionesExpandidas[index]),
-                );
-              },
-              childCount: notificacionesExpandidas.length,
-            ),
-          ),
+        return ListView.builder(
+          physics: const BouncingScrollPhysics(),
+          padding:
+              const EdgeInsets.only(top: 16, bottom: 90, left: 16, right: 16),
+          itemCount: items.length,
+          itemBuilder: (ctx, index) {
+            return FadeTransition(
+              opacity: _fadeAnim,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _buildNotificacionItem(items[index]),
+              ),
+            );
+          },
         );
       },
     );
   }
 
+  // ── Estado vacío ──
   Widget _buildEstadoVacio() {
-    return SliverFillRemaining(
-      child: Center(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(32),
-                decoration: BoxDecoration(
-                  color: lightBg,
-                  borderRadius: BorderRadius.circular(24),
+    return Center(
+      child: FadeTransition(
+        opacity: _fadeAnim,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    accentBlue.withOpacity(0.1),
+                    accentPurple.withOpacity(0.1),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                child: Icon(
-                  Icons.notifications_none_outlined,
-                  size: 60,
-                  color: textGray,
-                ),
+                borderRadius: BorderRadius.circular(24),
               ),
-              const SizedBox(height: 24),
-              Text(
-                'Sin Notificaciones',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: darkNavy,
-                ),
+              child: Icon(
+                Icons.notifications_none_rounded,
+                size: 48,
+                color: accentBlue.withOpacity(0.5),
               ),
-              const SizedBox(height: 10),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40),
-                child: Text(
-                  'Aquí aparecerán las actualizaciones\nde tus reservas, compras y encomiendas',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: textGray,
-                    height: 1.5,
-                  ),
-                ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Todo al día',
+              style: TextStyle(
+                color: textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.5,
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No tienes notificaciones nuevas',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: textSecondary,
+                fontSize: 15,
+                height: 1.4,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildNotificacionCard(Map<String, dynamic> notif) {
+  // ── Card individual mejorada ──
+  Widget _buildNotificacionItem(Map<String, dynamic> notif) {
     final bool leida = notif['leida'] ?? false;
     final String mensaje = notif['mensaje'] ?? 'Sin mensaje';
-    final dynamic asientoData = notif['asiento'];
-    final String asiento = asientoData?.toString() ?? 'N/A';
+    final String asiento = notif['asiento']?.toString() ?? 'N/A';
     final int tipoMensaje = notif['tipoMensaje'] ?? 1;
     final bool esGlobal = notif['esGlobal'] ?? false;
     final bool esEncomienda = notif['esEncomienda'] ?? false;
@@ -649,135 +417,66 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
     String fechaRelativa = 'Hace un momento';
     if (notif['fecha'] != null) {
       try {
-        Timestamp timestamp = notif['fecha'] as Timestamp;
-        fechaRelativa = timeago.format(timestamp.toDate(), locale: 'es');
-      } catch (e) {
-        fechaRelativa = 'Hace un momento';
-      }
+        fechaRelativa = timeago.format((notif['fecha'] as Timestamp).toDate(),
+            locale: 'es');
+      } catch (e) {}
     }
 
-    Color encomiendaColor = successGreen;
-    IconData encomiendaIcon = Icons.local_shipping_rounded;
-
+    // Icono y color según tipo
+    IconData avatarIcon;
+    Color avatarColor;
     if (esEncomienda) {
-      switch (estado.toLowerCase()) {
-        case 'entregado':
-          encomiendaColor = successGreen;
-          encomiendaIcon = Icons.check_circle_rounded;
-          break;
-        case 'en tránsito':
-        case 'en transito':
-          encomiendaColor = accentOrange;
-          encomiendaIcon = Icons.local_shipping_rounded;
-          break;
-        case 'pendiente':
-          encomiendaColor = Colors.amber.shade700;
-          encomiendaIcon = Icons.schedule_rounded;
-          break;
-        default:
-          encomiendaColor = accentBlue;
-          encomiendaIcon = Icons.inventory_2_rounded;
-      }
+      avatarIcon = Icons.local_shipping_rounded;
+      avatarColor = _colorEncomienda(estado);
+    } else if (esGlobal) {
+      avatarIcon = Icons.campaign_rounded;
+      avatarColor = accentPurple;
+    } else if (tipoMensaje == 2) {
+      avatarIcon = Icons.info_rounded;
+      avatarColor = accentOrange;
+    } else {
+      avatarIcon = Icons.notifications_active_rounded;
+      avatarColor = accentBlue;
     }
+
+    // Etiqueta
+    String? etiqueta;
+    if (esEncomienda)
+      etiqueta = 'Encomienda';
+    else if (esGlobal)
+      etiqueta = 'Anuncio';
+    else if (tipoMensaje == 2) etiqueta = 'Actualización';
 
     return Dismissible(
-      key: Key(docId + tipoMensaje.toString()),
+      key: Key('${docId}_$tipoMensaje'),
       direction: DismissDirection.endToStart,
-      confirmDismiss: (direction) async {
-        return await showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: Row(
-                children: [
-                  Icon(
-                    esGlobal ? Icons.visibility_off : Icons.delete_outline,
-                    color: mainRed,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      esGlobal
-                          ? 'Ocultar notificación'
-                          : 'Eliminar notificación',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              content: Text(
-                esGlobal
-                    ? '¿Deseas ocultar esta notificación? No la volverás a ver.'
-                    : '¿Estás seguro de que deseas eliminar esta notificación?',
-                style: TextStyle(
-                  color: textGray,
-                  fontSize: 14,
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: Text(
-                    'Cancelar',
-                    style: TextStyle(
-                      color: textGray,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: mainRed,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: Text(
-                    esGlobal ? 'Ocultar' : 'Eliminar',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
+      confirmDismiss: (dir) async {
+        return await _confirmarEliminar(esGlobal);
       },
-      onDismissed: (direction) {
-        _eliminarNotificacion(docId, esGlobal);
-      },
+      onDismissed: (_) => _eliminarNotificacion(docId, esGlobal),
       background: Container(
-        margin: const EdgeInsets.only(bottom: 12),
+        margin: const EdgeInsets.symmetric(horizontal: 4),
         decoration: BoxDecoration(
-          color: mainRed,
+          color: accentRed.withOpacity(0.1),
           borderRadius: BorderRadius.circular(16),
         ),
         alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
+        padding: const EdgeInsets.only(right: 24),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              esGlobal ? Icons.visibility_off : Icons.delete_rounded,
-              color: Colors.white,
-              size: 28,
+              esGlobal ? Icons.visibility_off_rounded : Icons.delete_rounded,
+              color: accentRed,
+              size: 24,
             ),
             const SizedBox(height: 4),
             Text(
               esGlobal ? 'Ocultar' : 'Eliminar',
               style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
+                color: accentRed,
                 fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -786,194 +485,312 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
       child: GestureDetector(
         onTap: () {
           if (!leida) {
-            setState(() {
-              _marcarComoLeida(docId, tipoMensaje);
-            });
+            setState(() {});
+            _marcarComoLeida(docId, tipoMensaje);
           }
         },
         child: Container(
-          margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: leida ? Colors.white : unreadBg,
+            color: leida ? bgCard : unreadBg,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: leida
-                  ? Colors.grey.shade200
-                  : (esEncomienda
-                      ? encomiendaColor.withOpacity(0.3)
-                      : (esGlobal
-                          ? mainRed.withOpacity(0.3)
-                          : Colors.amber.shade400)),
-              width: esGlobal || esEncomienda ? 2 : 1.5,
+              color: leida ? dividerColor : accentBlue.withOpacity(0.2),
+              width: 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(leida ? 0.04 : 0.08),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+                color: Colors.black.withOpacity(leida ? 0.02 : 0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: leida
-                        ? lightBg
-                        : (esEncomienda
-                            ? encomiendaColor.withOpacity(0.15)
-                            : (esGlobal
-                                ? mainRed.withOpacity(0.15)
-                                : Colors.amber.shade100)),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: leida
-                          ? Colors.grey.shade300
-                          : (esEncomienda
-                              ? encomiendaColor
-                              : (esGlobal ? mainRed : Colors.amber.shade400)),
-                      width: 1.5,
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Avatar con gradiente
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      avatarColor.withOpacity(0.8),
+                      avatarColor,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: avatarColor.withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
-                  ),
-                  child: Icon(
-                    esEncomienda
-                        ? encomiendaIcon
-                        : (esGlobal
-                            ? Icons.campaign_rounded
-                            : (tipoMensaje == 2
-                                ? Icons.notification_add_rounded
-                                : Icons.notifications_active_rounded)),
-                    color: leida
-                        ? textGray
-                        : (esEncomienda
-                            ? encomiendaColor
-                            : (esGlobal ? mainRed : Colors.amber.shade700)),
-                    size: 24,
-                  ),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (esGlobal || tipoMensaje == 2 || esEncomienda)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: esEncomienda
-                                  ? encomiendaColor.withOpacity(0.15)
-                                  : (esGlobal
-                                      ? mainRed.withOpacity(0.15)
-                                      : accentBlue.withOpacity(0.15)),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              esEncomienda
-                                  ? 'Encomienda'
-                                  : (esGlobal
-                                      ? 'Anuncio General'
-                                      : 'Actualización'),
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: esEncomienda
-                                    ? encomiendaColor
-                                    : (esGlobal ? mainRed : accentBlue),
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ),
+                child: Icon(avatarIcon, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 14),
+              // Contenido
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (etiqueta != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
                         ),
-                      Text(
-                        mensaje,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: leida ? FontWeight.w500 : FontWeight.w600,
-                          color: leida ? textGray : darkNavy,
-                          height: 1.5,
+                        decoration: BoxDecoration(
+                          color: avatarColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          etiqueta,
+                          style: TextStyle(
+                            color: avatarColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
+                          ),
                         ),
                       ),
-                      if (esEncomienda && descripcion.isNotEmpty) ...[
-                        const SizedBox(height: 6),
+                      const SizedBox(height: 8),
+                    ],
+                    Text(
+                      mensaje,
+                      style: TextStyle(
+                        color: leida ? textSecondary : textPrimary,
+                        fontSize: 15,
+                        fontWeight: leida ? FontWeight.w500 : FontWeight.w600,
+                        height: 1.4,
+                        letterSpacing: -0.2,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (esEncomienda && descripcion.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        descripcion,
+                        style: const TextStyle(
+                          color: textSecondary,
+                          fontSize: 13,
+                          height: 1.3,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.access_time_rounded,
+                          size: 14,
+                          color: textSecondary.withOpacity(0.7),
+                        ),
+                        const SizedBox(width: 4),
                         Text(
-                          descripcion,
+                          fechaRelativa,
                           style: TextStyle(
+                            color: textSecondary.withOpacity(0.8),
                             fontSize: 12,
-                            color: textGray,
-                            height: 1.4,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
-                      ],
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.schedule,
-                            size: 14,
-                            color: textGray,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            fechaRelativa,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: textGray,
-                              fontWeight: FontWeight.w500,
+                        if (asiento != 'INFO' && asiento != 'N/A') ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 3,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: textSecondary.withOpacity(0.5),
+                              shape: BoxShape.circle,
                             ),
                           ),
-                          if (asiento != 'INFO' && asiento != 'N/A') ...[
-                            const SizedBox(width: 12),
-                            Container(
-                              width: 4,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: textGray,
-                                shape: BoxShape.circle,
+                          const SizedBox(width: 8),
+                          // Código de encomienda con botón de copiar
+                          if (esEncomienda)
+                            Flexible(
+                              child: GestureDetector(
+                                onTap: () => _copiarAlPortapapeles(asiento),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: avatarColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: avatarColor.withOpacity(0.3),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.copy_rounded,
+                                        size: 12,
+                                        color: avatarColor,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          asiento,
+                                          style: TextStyle(
+                                            color: avatarColor,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 0.5,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Icon(
-                              esEncomienda ? Icons.qr_code_2 : Icons.event_seat,
-                              size: 14,
-                              color: textGray,
-                            ),
-                            const SizedBox(width: 4),
+                            )
+                          else
                             Flexible(
                               child: Text(
-                                esEncomienda ? asiento : 'Asiento $asiento',
+                                'Asiento $asiento',
                                 style: TextStyle(
+                                  color: textSecondary.withOpacity(0.8),
                                   fontSize: 12,
-                                  color: textGray,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w500,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                          ],
                         ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              // Indicador no leída
+              if (!leida) ...[
+                const SizedBox(width: 12),
+                Container(
+                  width: 10,
+                  height: 10,
+                  margin: const EdgeInsets.only(top: 4),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [accentBlue, accentPurple],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: accentBlue.withOpacity(0.4),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
                       ),
                     ],
                   ),
                 ),
               ],
-            ),
+            ],
           ),
         ),
       ),
     );
   }
+
+  Color _colorEncomienda(String estado) {
+    switch (estado.toLowerCase()) {
+      case 'entregado':
+        return accentGreen;
+      case 'en tránsito':
+      case 'en transito':
+        return accentOrange;
+      case 'pendiente':
+        return accentBlue;
+      default:
+        return accentRed;
+    }
+  }
+
+  Future<bool> _confirmarEliminar(bool esGlobal) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: bgCard,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: Text(
+              esGlobal ? 'Ocultar notificación' : 'Eliminar notificación',
+              style: const TextStyle(
+                color: textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            content: Text(
+              esGlobal
+                  ? '¿Deseas ocultar esta notificación?'
+                  : '¿Estás seguro de que deseas eliminarla?',
+              style: const TextStyle(
+                color: textSecondary,
+                fontSize: 15,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                ),
+                child: const Text(
+                  'Cancelar',
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                style: TextButton.styleFrom(
+                  backgroundColor: accentRed.withOpacity(0.1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: Text(
+                  esGlobal ? 'Ocultar' : 'Eliminar',
+                  style: const TextStyle(
+                    color: accentRed,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
 }
 
-// ==================== WIDGET DE BADGE - CORREGIDO ====================
+// ==================== BADGE EXTERNO ====================
 class NotificacionesBadge extends StatelessWidget {
   final String userEmail;
   final VoidCallback onTap;
@@ -984,90 +801,53 @@ class NotificacionesBadge extends StatelessWidget {
     required this.onTap,
   }) : super(key: key);
 
-  String _sanitizeEmail(String email) {
-    return email.replaceAll('.', '_').replaceAll('@', '_at_');
-  }
+  String _sanitizeEmail(String email) =>
+      email.replaceAll('.', '_').replaceAll('@', '_at_');
 
-  bool _esMensaje3Leido(Map<String, dynamic> data, String userEmail) {
+  bool _esMensaje3Leido(Map<String, dynamic> data) {
     if (data['leida3'] == null) return false;
-
-    if (data['leida3'] is Map) {
-      final leida3Map = data['leida3'] as Map<String, dynamic>;
-      final sanitizedEmail = _sanitizeEmail(userEmail);
-      return leida3Map[sanitizedEmail] == true;
-    }
-
-    if (data['leida3'] is bool) {
-      return data['leida3'] as bool;
-    }
-
+    if (data['leida3'] is Map)
+      return (data['leida3'] as Map)[_sanitizeEmail(userEmail)] == true;
+    if (data['leida3'] is bool) return data['leida3'] as bool;
     return false;
   }
 
-  bool _estaOcultadaParaUsuario(Map<String, dynamic> data, String userEmail) {
+  bool _estaOcultada(Map<String, dynamic> data) {
     if (data['ocultadoPara'] == null) return false;
-
-    if (data['ocultadoPara'] is Map) {
-      final ocultadoMap = data['ocultadoPara'] as Map<String, dynamic>;
-      final sanitizedEmail = _sanitizeEmail(userEmail);
-      return ocultadoMap[sanitizedEmail] == true;
-    }
-
+    if (data['ocultadoPara'] is Map)
+      return (data['ocultadoPara'] as Map)[_sanitizeEmail(userEmail)] == true;
     return false;
   }
 
-  int _contarNotificacionesNoLeidas(
-      List<QueryDocumentSnapshot> docs, String userEmail) {
+  int _contarNoLeidas(List<QueryDocumentSnapshot> docs) {
     int count = 0;
-
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
-
       bool esEncomienda = data['tipo'] == 'encomienda';
       bool esDelUsuario = data['email'] == userEmail;
       bool tieneMensaje3 =
           data['mensaje3'] != null && data['mensaje3'].toString().isNotEmpty;
 
-      // ========== MANEJO DE ENCOMIENDAS ==========
       if (esEncomienda) {
-        if (data['correo'] == userEmail && (data['leida'] ?? false) == false) {
+        if (data['correo'] == userEmail && (data['leida'] ?? false) == false)
           count++;
-        }
-        continue; // ⚠️ CRÍTICO: Saltar al siguiente documento
-      }
-
-      // Si es global y está oculta, no contar
-      if (tieneMensaje3 && _estaOcultadaParaUsuario(data, userEmail)) {
         continue;
       }
+      if (tieneMensaje3 && _estaOcultada(data)) continue;
+      if (!esDelUsuario && !tieneMensaje3) continue;
 
-      // Si no es del usuario ni global, saltar
-      if (!esDelUsuario && !tieneMensaje3) {
-        continue;
-      }
-
-      // Contar mensaje 1 (no leído)
       if (esDelUsuario &&
-          (data['leida'] ?? false) == false &&
+          !(data['leida'] ?? false) &&
           data['mensaje'] != null &&
-          data['mensaje'].toString().isNotEmpty) {
-        count++;
-      }
+          data['mensaje'].toString().isNotEmpty) count++;
 
-      // Contar mensaje 2 (no leído)
       if (esDelUsuario &&
-          (data['leida2'] ?? false) == false &&
+          !(data['leida2'] ?? false) &&
           data['mensaje2'] != null &&
-          data['mensaje2'].toString().isNotEmpty) {
-        count++;
-      }
+          data['mensaje2'].toString().isNotEmpty) count++;
 
-      // Contar mensaje 3 (global no leído)
-      if (tieneMensaje3 && !_esMensaje3Leido(data, userEmail)) {
-        count++;
-      }
+      if (tieneMensaje3 && !_esMensaje3Leido(data)) count++;
     }
-
     return count;
   }
 
@@ -1078,36 +858,42 @@ class NotificacionesBadge extends StatelessWidget {
           FirebaseFirestore.instance.collection('notificaciones').snapshots(),
       builder: (context, snapshot) {
         int count = 0;
-
-        if (snapshot.hasData) {
-          count = _contarNotificacionesNoLeidas(snapshot.data!.docs, userEmail);
-        }
+        if (snapshot.hasData) count = _contarNoLeidas(snapshot.data!.docs);
 
         return IconButton(
           icon: Stack(
             clipBehavior: Clip.none,
             children: [
-              const Icon(Icons.notifications_outlined, size: 26),
+              const Icon(
+                Icons.notifications_outlined,
+                color: Colors.white,
+                size: 26,
+              ),
               if (count > 0)
                 Positioned(
-                  right: -2,
-                  top: -2,
+                  right: -5,
+                  top: -3,
                   child: Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF940016),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF940016).withOpacity(0.4),
-                          blurRadius: 4,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
                     constraints: const BoxConstraints(
                       minWidth: 18,
                       minHeight: 18,
+                    ),
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF3B82F6), Color(0xFF8B5CF6)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF3B82F6).withOpacity(0.4),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Center(
                       child: Text(
@@ -1115,7 +901,8 @@ class NotificacionesBadge extends StatelessWidget {
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
                         ),
                         textAlign: TextAlign.center,
                       ),
