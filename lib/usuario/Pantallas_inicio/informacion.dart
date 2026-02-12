@@ -598,8 +598,6 @@ class _TransDoramaldHomeScreenState extends State<TransDoramaldHomeScreen>
         'title': 'Soporte 24/7',
         'features': [
           'Atención inmediata por WhatsApp',
-          'Call center multilingüe',
-          'Chat en vivo',
           'Resolución rápida de problemas'
         ],
         'color': const Color(0xFF9C27B0),

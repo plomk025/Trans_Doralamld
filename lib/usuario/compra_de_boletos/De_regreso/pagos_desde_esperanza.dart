@@ -466,8 +466,10 @@ class _PagoScreen2State extends State<PagoScreen2>
       String horaSalida = '';
       String lugarSalida = '';
 
-      var busDoc =
-          await db.collection('buses_tulcan_salida').doc(widget.busId).get();
+      var busDoc = await db
+          .collection('buses_la_esperanza_salida')
+          .doc(widget.busId)
+          .get();
 
       if (!busDoc.exists) {
         busDoc = await db
@@ -709,7 +711,8 @@ class _PagoScreen2State extends State<PagoScreen2>
 
       debugPrint('📝 Actualizando asiento en bus...');
 
-      final busRef = db.collection('buses_tulcan_salida').doc(widget.busId);
+      final busRef =
+          db.collection('buses_la_esperanza_salida').doc(widget.busId);
       final busDoc = await busRef.get();
 
       if (!busDoc.exists) {

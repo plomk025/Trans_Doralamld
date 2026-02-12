@@ -734,6 +734,8 @@ class _AgregarNombrePageState extends State<AgregarNombrePage> {
 }
 
 // ==================== PANTALLA AGREGAR RUTA ====================
+// ==================== PANTALLA AGREGAR RUTA ====================
+// ==================== PANTALLA AGREGAR RUTA ====================
 class AgregarRutaScreen extends StatefulWidget {
   const AgregarRutaScreen({super.key});
 
@@ -748,6 +750,9 @@ class _AgregarRutaScreenState extends State<AgregarRutaScreen> {
   bool _isLoading = false;
 
   String _origenSeleccionado = 'Tulcán';
+  String? _salidaSeleccionada;
+  List<Map<String, dynamic>> _lugaresDisponibles = [];
+  bool _cargandoLugares = false;
 
   static const Color primaryBusBlue = Color(0xFF1E40AF);
   static const Color darkNavy = Color(0xFF0F172A);
@@ -762,8 +767,55 @@ class _AgregarRutaScreenState extends State<AgregarRutaScreen> {
     super.dispose();
   }
 
+  Future<void> _cargarLugaresSalida() async {
+    setState(() => _cargandoLugares = true);
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('paradas_salida_tulcan')
+          .orderBy('nombre')
+          .get();
+
+      setState(() {
+        _lugaresDisponibles = snapshot.docs.map((doc) {
+          return {
+            'id': doc.id,
+            'nombre': doc.data()['nombre'] ?? '',
+          };
+        }).toList();
+        _salidaSeleccionada = null;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al cargar lugares: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } finally {
+      setState(() => _cargandoLugares = false);
+    }
+  }
+
   Future<void> _agregarRuta() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Validar que se haya seleccionado un lugar de salida si no es Tulcán
+    if (_origenSeleccionado != 'Tulcán' && _salidaSeleccionada == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor, seleccione un lugar de salida'),
+          backgroundColor: Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -775,15 +827,24 @@ class _AgregarRutaScreenState extends State<AgregarRutaScreen> {
           ? 'paradas_salida_tulcan'
           : 'paradas_salida_la_esperanza';
 
-      await FirebaseFirestore.instance.collection(coleccion).add({
+      // Preparar datos base
+      Map<String, dynamic> datos = {
         'nombre': nombre,
         'precio': precio,
         'origen': _origenSeleccionado,
         'fecha_creacion': Timestamp.now(),
-      });
+      };
+
+      // Agregar campo 'salida' solo si NO es Tulcán
+      if (_origenSeleccionado != 'Tulcán') {
+        datos['salida'] = _salidaSeleccionada;
+      }
+
+      await FirebaseFirestore.instance.collection(coleccion).add(datos);
 
       _nameController.clear();
       _priceController.clear();
+      setState(() => _salidaSeleccionada = null);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -926,6 +987,8 @@ class _AgregarRutaScreenState extends State<AgregarRutaScreen> {
                             onTap: () {
                               setState(() {
                                 _origenSeleccionado = 'Tulcán';
+                                _salidaSeleccionada = null;
+                                _lugaresDisponibles = [];
                               });
                             },
                             borderRadius: const BorderRadius.only(
@@ -985,6 +1048,7 @@ class _AgregarRutaScreenState extends State<AgregarRutaScreen> {
                               setState(() {
                                 _origenSeleccionado = 'La Esperanza';
                               });
+                              _cargarLugaresSalida();
                             },
                             borderRadius: const BorderRadius.only(
                               topRight: Radius.circular(12),
@@ -1036,6 +1100,110 @@ class _AgregarRutaScreenState extends State<AgregarRutaScreen> {
                       ],
                     ),
                   ),
+
+                  // Dropdown de Lugar de Salida (solo para La Esperanza)
+                  if (_origenSeleccionado != 'Tulcán') ...[
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Lugar de Salida',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: darkNavy,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey[300]!),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.03),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: _cargandoLugares
+                          ? const Padding(
+                              padding: EdgeInsets.all(16.0),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                  SizedBox(width: 12),
+                                  Text('Cargando lugares...'),
+                                ],
+                              ),
+                            )
+                          : DropdownButtonFormField<String>(
+                              value: _salidaSeleccionada,
+                              decoration: InputDecoration(
+                                hintText: 'Seleccione un lugar de salida',
+                                hintStyle: TextStyle(color: textGray),
+                                prefixIcon: Icon(
+                                  Icons.pin_drop_outlined,
+                                  color: textGray,
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: Color(0xFFEA580C),
+                                    width: 2,
+                                  ),
+                                ),
+                                filled: true,
+                                fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 16,
+                                ),
+                              ),
+                              items: _lugaresDisponibles.map((lugar) {
+                                return DropdownMenuItem<String>(
+                                  value: lugar['nombre'],
+                                  child: Text(lugar['nombre']),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                setState(() {
+                                  _salidaSeleccionada = value;
+                                });
+                              },
+                              icon: const Icon(Icons.arrow_drop_down_rounded),
+                              dropdownColor: Colors.white,
+                              isExpanded: true,
+                            ),
+                    ),
+                    if (_lugaresDisponibles.isEmpty && !_cargandoLugares)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text(
+                          'No hay lugares disponibles. Agregue lugares en la colección paradas_salida_tulcan.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.orange[700],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                  ],
+
                   const SizedBox(height: 24),
                   const Text(
                     'Nombre de la Ruta',
@@ -1189,7 +1357,6 @@ class _AgregarRutaScreenState extends State<AgregarRutaScreen> {
 }
 
 // El resto del código (VerRutasScreen) permanece igual...
-
 // ==================== PANTALLA VER RUTAS ====================
 class VerRutasScreen extends StatefulWidget {
   const VerRutasScreen({super.key});
@@ -1320,6 +1487,7 @@ class _VerRutasScreenState extends State<VerRutasScreen> {
     double precio,
     String coleccion,
     String origen,
+    String? salida,
   ) {
     final editNameController = TextEditingController(text: nombre);
     final editPriceController = TextEditingController(
@@ -1389,13 +1557,34 @@ class _VerRutasScreenState extends State<VerRutasScreen> {
                       size: 20,
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      'Origen: $origen',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color:
-                            origen == 'Tulcán' ? primaryBusBlue : accentOrange,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Origen: $origen',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: origen == 'Tulcán'
+                                  ? primaryBusBlue
+                                  : accentOrange,
+                            ),
+                          ),
+                          if (salida != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Salida: $salida',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: origen == 'Tulcán'
+                                    ? primaryBusBlue
+                                    : accentOrange,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ],
@@ -1902,6 +2091,7 @@ class _VerRutasScreenState extends State<VerRutasScreen> {
 
             List<Map<String, dynamic>> todasLasRutas = [];
 
+            // Cargar rutas de Tulcán
             if (_origenFiltro == 'Todos' || _origenFiltro == 'Tulcán') {
               if (personaSnapshot.hasData) {
                 for (var doc in personaSnapshot.data!.docs) {
@@ -1911,12 +2101,14 @@ class _VerRutasScreenState extends State<VerRutasScreen> {
                     'nombre': data['nombre'] ?? 'Sin nombre',
                     'precio': (data['precio'] ?? 0.0).toDouble(),
                     'origen': data['origen'] ?? 'Tulcán',
+                    'salida': null, // Tulcán no tiene lugar de salida
                     'coleccion': 'paradas_salida_tulcan',
                   });
                 }
               }
             }
 
+            // Cargar rutas de La Esperanza
             if (_origenFiltro == 'Todos' || _origenFiltro == 'La Esperanza') {
               if (paradasSnapshot.hasData) {
                 for (var doc in paradasSnapshot.data!.docs) {
@@ -1926,6 +2118,7 @@ class _VerRutasScreenState extends State<VerRutasScreen> {
                     'nombre': data['nombre'] ?? 'Sin nombre',
                     'precio': (data['precio'] ?? 0.0).toDouble(),
                     'origen': data['origen'] ?? 'La Esperanza',
+                    'salida': data['salida'], // Campo exclusivo de La Esperanza
                     'coleccion': 'paradas_salida_la_esperanza',
                   });
                 }
@@ -1934,7 +2127,9 @@ class _VerRutasScreenState extends State<VerRutasScreen> {
 
             final rutasFiltradas = todasLasRutas.where((ruta) {
               final nombre = ruta['nombre'].toString().toLowerCase();
-              return nombre.contains(_searchQuery);
+              final salida = (ruta['salida'] ?? '').toString().toLowerCase();
+              return nombre.contains(_searchQuery) ||
+                  salida.contains(_searchQuery);
             }).toList();
 
             rutasFiltradas.sort(
@@ -1997,6 +2192,7 @@ class _VerRutasScreenState extends State<VerRutasScreen> {
                 final nombre = ruta['nombre'];
                 final precio = ruta['precio'];
                 final origen = ruta['origen'];
+                final salida = ruta['salida'];
                 final coleccion = ruta['coleccion'];
                 final docId = ruta['id'];
 
@@ -2051,16 +2247,49 @@ class _VerRutasScreenState extends State<VerRutasScreen> {
                               Row(
                                 children: [
                                   Expanded(
-                                    child: Text(
-                                      nombre,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                        color: darkNavy,
-                                        height: 1.2,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          nombre,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                            color: darkNavy,
+                                            height: 1.2,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        // Mostrar lugar de salida solo para La Esperanza
+                                        if (salida != null) ...[
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                Icons.pin_drop_outlined,
+                                                size: 12,
+                                                color: textGray,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Expanded(
+                                                child: Text(
+                                                  'Salida: $salida',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: textGray,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -2157,6 +2386,7 @@ class _VerRutasScreenState extends State<VerRutasScreen> {
                                   precio,
                                   coleccion,
                                   origen,
+                                  salida,
                                 ),
                               ),
                               Container(

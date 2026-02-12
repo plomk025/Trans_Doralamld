@@ -16,7 +16,11 @@ class _ParadasScreen2State extends State<ParadasScreen2>
   late Animation<double> _fadeAnimation;
   String _searchQuery = '';
 
-  // Paleta de colores inspirada en transporte de buses
+  // Variables para el lugar de salida seleccionado
+  String? _lugarSalidaSeleccionado;
+  String? _nombreLugarSalida;
+
+  // Paleta de colores
   final Color primaryBusBlue = const Color.fromARGB(255, 243, 248, 255);
   final Color accentOrange = const Color(0xFFEA580C);
   final Color darkNavy = const Color(0xFF0F172A);
@@ -48,6 +52,213 @@ class _ParadasScreen2State extends State<ParadasScreen2>
     super.dispose();
   }
 
+  Future<void> _mostrarSelectorLugarSalida() async {
+    final db = FirebaseFirestore.instance;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (_, controller) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Color(0xFF940016).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.trip_origin_rounded,
+                            color: Color(0xFF940016),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Lugar de Salida',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                              Text(
+                                'Selecciona desde dónde saldrás',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF475569),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream:
+                          db.collection('paradas_salida_tulcan').snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return Center(
+                            child: CircularProgressIndicator(
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(accentBlue),
+                            ),
+                          );
+                        }
+
+                        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                          return const Center(
+                            child: Text('No hay lugares de salida disponibles'),
+                          );
+                        }
+
+                        var lugaresSalida = snapshot.data!.docs;
+
+                        return ListView.builder(
+                          controller: controller,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          itemCount: lugaresSalida.length,
+                          itemBuilder: (context, index) {
+                            var lugar = lugaresSalida[index];
+                            var data = lugar.data() as Map<String, dynamic>;
+                            var nombreLugar = data['nombre'] ?? 'Sin nombre';
+                            var lugarId = lugar.id;
+
+                            bool isSelected =
+                                _lugarSalidaSeleccionado == lugarId;
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? Color(0xFF940016).withOpacity(0.1)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? Color(0xFF940016)
+                                      : Colors.grey.shade200,
+                                  width: isSelected ? 2 : 1,
+                                ),
+                              ),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                leading: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? Color(0xFF940016)
+                                        : Color(0xFF940016).withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Icon(
+                                    Icons.location_city_rounded,
+                                    color: isSelected
+                                        ? Colors.white
+                                        : Color(0xFF940016),
+                                    size: 24,
+                                  ),
+                                ),
+                                title: Text(
+                                  nombreLugar,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: isSelected
+                                        ? Color(0xFF940016)
+                                        : darkNavy,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  'Punto de partida',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: textGray,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                trailing: isSelected
+                                    ? Icon(
+                                        Icons.check_circle_rounded,
+                                        color: Color(0xFF940016),
+                                        size: 28,
+                                      )
+                                    : Icon(
+                                        Icons.arrow_forward_ios,
+                                        size: 16,
+                                        color: roadGray,
+                                      ),
+                                onTap: () {
+                                  setState(() {
+                                    _lugarSalidaSeleccionado = lugarId;
+                                    _nombreLugarSalida = nombreLugar;
+                                  });
+                                  Navigator.pop(context);
+                                },
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final db = FirebaseFirestore.instance;
@@ -58,8 +269,10 @@ class _ParadasScreen2State extends State<ParadasScreen2>
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           _buildHeader(),
-          _buildSearchBar(),
-          _buildParadasList(db),
+          _buildLugarSalidaSelector(),
+          if (_lugarSalidaSeleccionado != null) _buildSearchBar(),
+          if (_lugarSalidaSeleccionado != null) _buildParadasList(db),
+          if (_lugarSalidaSeleccionado == null) _buildSelectorPrompt(),
         ],
       ),
     );
@@ -94,23 +307,11 @@ class _ParadasScreen2State extends State<ParadasScreen2>
                         children: [
                           InkWell(
                             borderRadius: BorderRadius.circular(12),
-                            onTap: () {
-                              Navigator.pop(context);
-                            },
+                            onTap: () => Navigator.pop(context),
                             child: Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: const Color.fromARGB(0, 255, 255, 255),
                                 borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color:
-                                        const Color.fromARGB(0, 240, 240, 240)
-                                            .withOpacity(0.1),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
                               ),
                               child: const Icon(
                                 Icons.arrow_back_ios_new_rounded,
@@ -124,7 +325,7 @@ class _ParadasScreen2State extends State<ParadasScreen2>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'SELECCIÓN DE PARADA',
+                                'SELECCIÓN DE PARADAs',
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w900,
@@ -133,7 +334,7 @@ class _ParadasScreen2State extends State<ParadasScreen2>
                                 ),
                               ),
                               Text(
-                                'Elige tu parada',
+                                'Origen y destino',
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w500,
@@ -145,35 +346,11 @@ class _ParadasScreen2State extends State<ParadasScreen2>
                           ),
                         ],
                       ),
-                      InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () {},
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: const Color.fromARGB(0, 240, 240, 240),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color.fromARGB(0, 255, 255, 255)
-                                    .withOpacity(0.1),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.location_on_rounded,
-                            color: Color(0xFF940016),
-                            size: 22,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 28),
                   const Text(
-                    'Selecciona tu Parada',
+                    'Selecciona tu parada de salida',
                     style: TextStyle(
                       fontSize: 30,
                       fontWeight: FontWeight.w900,
@@ -186,7 +363,7 @@ class _ParadasScreen2State extends State<ParadasScreen2>
                   Container(
                     constraints: const BoxConstraints(maxWidth: 340),
                     child: const Text(
-                      'Elige el punto de destino más conveniente para ti',
+                      'Selecciona tu punto de salida y destino',
                       style: TextStyle(
                         fontSize: 14,
                         color: Color.fromARGB(255, 71, 74, 76),
@@ -195,9 +372,170 @@ class _ParadasScreen2State extends State<ParadasScreen2>
                       ),
                     ),
                   ),
-                  const SizedBox(height: 10),
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLugarSalidaSelector() {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: InkWell(
+            onTap: _mostrarSelectorLugarSalida,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _lugarSalidaSeleccionado != null
+                      ? Color(0xFF940016)
+                      : Colors.grey.shade200,
+                  width: _lugarSalidaSeleccionado != null ? 2 : 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _lugarSalidaSeleccionado != null
+                          ? Color(0xFF940016).withOpacity(0.1)
+                          : lightBg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.trip_origin_rounded,
+                      color: _lugarSalidaSeleccionado != null
+                          ? Color(0xFF940016)
+                          : roadGray,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Lugar de Salida',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: textGray,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _nombreLugarSalida ?? 'Seleccionar lugar de salida',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: _lugarSalidaSeleccionado != null
+                                ? darkNavy
+                                : textGray,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    _lugarSalidaSeleccionado != null
+                        ? Icons.check_circle_rounded
+                        : Icons.arrow_forward_ios,
+                    color: _lugarSalidaSeleccionado != null
+                        ? successGreen
+                        : roadGray,
+                    size: _lugarSalidaSeleccionado != null ? 28 : 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectorPrompt() {
+    return SliverFillRemaining(
+      child: Center(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: Padding(
+            padding: const EdgeInsets.all(40),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(32),
+                  decoration: BoxDecoration(
+                    color: lightBg,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Icon(
+                    Icons.location_searching_rounded,
+                    size: 64,
+                    color: Color(0xFF940016),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Selecciona tu lugar de salida',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: darkNavy,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Para continuar, primero debes elegir desde dónde comenzará tu viaje',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: textGray,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                ElevatedButton.icon(
+                  onPressed: _mostrarSelectorLugarSalida,
+                  icon: const Icon(Icons.add_location_rounded),
+                  label: const Text('Elegir lugar de salida'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF940016),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 16,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -231,7 +569,7 @@ class _ParadasScreen2State extends State<ParadasScreen2>
                 });
               },
               decoration: InputDecoration(
-                hintText: 'Buscar parada por nombre...',
+                hintText: 'Buscar destino...',
                 hintStyle: TextStyle(
                   color: textGray,
                   fontSize: 14,
@@ -276,29 +614,11 @@ class _ParadasScreen2State extends State<ParadasScreen2>
         if (snapshot.connectionState == ConnectionState.waiting) {
           return SliverFillRemaining(
             child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 50,
-                    height: 50,
-                    child: CircularProgressIndicator(
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        Color(0xFF940016),
-                      ),
-                      strokeWidth: 3,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Cargando paradas disponibles...',
-                    style: TextStyle(
-                      color: textGray,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+              child: CircularProgressIndicator(
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  Color(0xFF940016),
+                ),
+                strokeWidth: 3,
               ),
             ),
           );
@@ -307,22 +627,28 @@ class _ParadasScreen2State extends State<ParadasScreen2>
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return _buildEmptyState(
             icon: Icons.location_off_outlined,
-            title: 'No hay paradas disponibles',
+            title: 'No hay destinos disponibles',
             subtitle: 'Intenta de nuevo más tarde',
           );
         }
 
-        var paradas = snapshot.data!.docs.where((doc) {
+        var paradasFiltradas = snapshot.data!.docs.where((doc) {
           var data = doc.data() as Map<String, dynamic>;
+          var salidaId = data['salida'] ?? '';
           var nombre = (data['nombre'] ?? '').toString().toLowerCase();
-          return nombre.contains(_searchQuery);
+
+          // Compara el campo 'salida' con el NOMBRE del lugar de salida seleccionado
+          return salidaId == _nombreLugarSalida &&
+              nombre.contains(_searchQuery);
         }).toList();
 
-        if (paradas.isEmpty && _searchQuery.isNotEmpty) {
+        if (paradasFiltradas.isEmpty) {
           return _buildEmptyState(
-            icon: Icons.search_off_rounded,
-            title: 'No se encontraron resultados',
-            subtitle: 'Intenta con otro término de búsqueda',
+            icon: Icons.route_outlined,
+            title: 'No hay rutas disponibles',
+            subtitle: _searchQuery.isEmpty
+                ? 'No existen destinos desde este lugar de salida'
+                : 'No se encontraron resultados',
           );
         }
 
@@ -333,10 +659,10 @@ class _ParadasScreen2State extends State<ParadasScreen2>
               (context, index) {
                 return FadeTransition(
                   opacity: _fadeAnimation,
-                  child: _buildParadaCard(paradas[index], index),
+                  child: _buildParadaCard(paradasFiltradas[index]),
                 );
               },
-              childCount: paradas.length,
+              childCount: paradasFiltradas.length,
             ),
           ),
         );
@@ -351,52 +677,42 @@ class _ParadasScreen2State extends State<ParadasScreen2>
   }) {
     return SliverFillRemaining(
       child: Center(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(32),
-                decoration: BoxDecoration(
-                  color: lightBg,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Icon(
-                  icon,
-                  size: 60,
-                  color: textGray,
-                ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: lightBg,
+                borderRadius: BorderRadius.circular(24),
               ),
-              const SizedBox(height: 24),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: darkNavy,
-                ),
+              child: Icon(icon, size: 60, color: textGray),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: darkNavy,
               ),
-              const SizedBox(height: 10),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40),
-                child: Text(
-                  subtitle,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: textGray,
-                  ),
-                ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
+              child: Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: textGray),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildParadaCard(DocumentSnapshot parada, int index) {
+  Widget _buildParadaCard(DocumentSnapshot parada) {
     var data = parada.data() as Map<String, dynamic>;
     var nombre = data['nombre'] ?? 'Sin nombre';
     var precio = data['precio']?.toString() ?? '0';
@@ -439,22 +755,20 @@ class _ParadasScreen2State extends State<ParadasScreen2>
               children: [
                 Row(
                   children: [
-                    // Icono de la parada
                     Container(
                       width: 56,
                       height: 56,
                       decoration: BoxDecoration(
-                        color: accentBlue.withOpacity(0.1),
+                        color: Color(0xFF940016).withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
                         Icons.location_on_rounded,
-                        color: accentBlue,
+                        color: Color(0xFF940016),
                         size: 28,
                       ),
                     ),
                     const SizedBox(width: 16),
-                    // Información de la parada
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -469,113 +783,80 @@ class _ParadasScreen2State extends State<ParadasScreen2>
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Parada disponible',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: successGreen,
-                            ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.schedule_rounded,
+                                size: 14,
+                                color: textGray,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Destino disponible',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: textGray,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                    // Flecha
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
-                        color: lightBg,
+                        color: successGreen.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Icon(
-                        Icons.arrow_forward_ios,
-                        size: 16,
-                        color: roadGray,
+                      child: Text(
+                        '\$$precio',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: successGreen,
+                        ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                // Precio y estado
-                Row(
-                  children: [
-                    // Precio
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: successGreen.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.attach_money_rounded,
-                              color: Color(0xFF059669),
-                              size: 18,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              precio,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF059669),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'USD',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: successGreen.withOpacity(0.7),
-                              ),
-                            ),
-                          ],
-                        ),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: lightBg,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 18,
+                        color: Color(0xFF940016),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Estado
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: lightBg,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF059669),
-                              shape: BoxShape.circle,
-                            ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Toca para seleccionar asientos',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: textGray,
+                            fontWeight: FontWeight.w600,
                           ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Activa',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: textGray,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
+                      Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 18,
+                        color: Color(0xFF940016),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
