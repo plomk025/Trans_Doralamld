@@ -32,13 +32,14 @@ class AsientosScreen2 extends StatefulWidget {
   final String paradaNombre;
   final double paradaPrecio;
   final String userId;
-
+  final String chofer; // 🆕 AGREGADO
   const AsientosScreen2({
     Key? key,
     required this.busId,
     required this.paradaNombre,
     required this.paradaPrecio,
     required this.userId,
+    required this.chofer,
   }) : super(key: key);
 
   @override
@@ -1571,16 +1572,24 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.directions_bus, color: mainRed, size: 28),
+                      Icon(Icons.event_seat_rounded, color: mainRed, size: 28),
                       const SizedBox(width: 10),
-                      Text(
-                        'Conductor',
-                        style: TextStyle(
-                          color: mainRed,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      Column(
+                        // 🆕
+                        crossAxisAlignment: CrossAxisAlignment.start, // 🆕
+                        children: [
+                          // 🆕
+                          Text(
+                            ' ${widget.chofer}', // 🆕
+                            style: TextStyle(
+                              color: mainRed,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          // 🆕
+                        ], // 🆕
+                      ), // 🆕
                     ],
                   ),
                 ),

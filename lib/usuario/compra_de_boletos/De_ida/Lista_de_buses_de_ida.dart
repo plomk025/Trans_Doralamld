@@ -666,7 +666,8 @@ class _BusCard extends StatelessWidget {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => ParadasScreen(busId: busId),
+                builder: (context) =>
+                    ParadasScreen(busId: busId, chofer: chofer),
               ),
             );
           },

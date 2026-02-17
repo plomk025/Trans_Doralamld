@@ -4,7 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ParadasScreen extends StatefulWidget {
   final String busId;
-  const ParadasScreen({Key? key, required this.busId}) : super(key: key);
+  final String chofer; // 🆕 AGREGAR
+  const ParadasScreen({Key? key, required this.busId, required this.chofer})
+      : super(key: key);
 
   @override
   _ParadasScreenState createState() => _ParadasScreenState();
@@ -427,6 +429,7 @@ class _ParadasScreenState extends State<ParadasScreen>
                   paradaNombre: nombre,
                   paradaPrecio: double.parse(precio),
                   userId: '',
+                  chofer: widget.chofer,
                 ),
               ),
             );

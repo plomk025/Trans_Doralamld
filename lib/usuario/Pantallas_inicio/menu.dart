@@ -70,6 +70,8 @@ enum UserRole {
   usuario,
   administrador,
   conductor,
+  gerente,
+  desarrollador // NUEVO: Rol para el gerente
 }
 
 // ========================================
@@ -221,6 +223,10 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
     final rol = _rolUsuario.toLowerCase();
 
     switch (rol) {
+      case 'desarrollador':
+        return UserRole.desarrollador;
+      case 'gerente':
+        return UserRole.gerente;
       case 'administrador':
         return UserRole.administrador;
       case 'conductor':
@@ -237,10 +243,14 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
     print('ROL ACTUAL: $role');
 
     switch (role) {
+      case UserRole.desarrollador:
+        return [..._serviciosUsuario(), ..._serviciosAdmin()];
+      case UserRole.gerente:
+        return [..._serviciosUsuario(), ..._serviciosAdmin()];
       case UserRole.conductor:
         return _serviciosConductor();
       case UserRole.administrador:
-        return [..._serviciosUsuario(), ..._serviciosAdmin()];
+        return _serviciosDesarrollador();
       case UserRole.usuario:
         return _serviciosUsuario();
       default:
@@ -248,9 +258,86 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
     }
   }
 
+  List<ServiceItem> _serviciosDesarrollador() {
+    return [
+      ServiceItem(
+        titulo: '🎫 Comprar Boleto',
+        subtitulo: '¡Viaja ya!',
+        descripcion: 'Elige tu destino y reserva en segundos',
+        ruta: MenuOpcionesScreen(),
+        icon: Icons.directions_bus,
+        color: const Color(0xFF2563EB),
+      ),
+      ServiceItem(
+        titulo: '📦 Mis Encomiendas',
+        subtitulo: 'Envíos activos',
+        descripcion: 'Revisa y administra todos tus envíos en tiempo real',
+        ruta: Encomiendascreen(),
+        icon: Icons.local_shipping_rounded,
+        color: const Color(0xFF10B981),
+      ),
+      ServiceItem(
+        titulo: '📦 Config. Encomiendas',
+        subtitulo: 'Precios y tarifas',
+        descripcion: 'Define pesos, tipos y costos de envíos',
+        ruta: ConfiguracionEncomiendas(),
+        icon: Icons.tune_rounded,
+        color: const Color(0xFF7C3AED),
+      ),
+      ServiceItem(
+        titulo: '🚌 Gestión de Flota',
+        subtitulo: 'Buses y unidades',
+        descripcion: 'Administra vehículos, capacidad y disponibilidad',
+        ruta: CrearBusScreen(),
+        icon: Icons.directions_bus_rounded,
+        color: const Color(0xFF6366F1),
+      ),
+      ServiceItem(
+        titulo: '💳 Verificar Pagos',
+        subtitulo: 'Transacciones',
+        descripcion: 'Valida y confirma pagos de usuarios',
+        ruta: AdminVerificacionPagosScreen(),
+        icon: Icons.account_balance_wallet_rounded,
+        color: const Color(0xFFF59E0B),
+      ),
+      ServiceItem(
+        titulo: '📘 Manual Admin',
+        subtitulo: 'Guía completa',
+        descripcion: 'Documentación del panel de administración',
+        ruta: ManualAdministradorScreen(),
+        icon: Icons.admin_panel_settings_rounded,
+        color: const Color(0xFF059669),
+      ),
+    ];
+  }
+
   // NUEVO: Servicios para el rol Conductor
   List<ServiceItem> _serviciosConductor() {
     return [
+      ServiceItem(
+        titulo: '🎫 Comprar Boleto',
+        subtitulo: '¡Viaja ya!',
+        descripcion: 'Elige tu destino y reserva en segundos',
+        ruta: MenuOpcionesScreen(),
+        icon: Icons.directions_bus,
+        color: const Color(0xFF2563EB),
+      ),
+      ServiceItem(
+        titulo: '📋 Mis Viajes',
+        subtitulo: 'Tu historial',
+        descripcion: 'Consulta tus boletos y viajes realizados',
+        ruta: HistorialComprasScreen(),
+        icon: Icons.receipt_long_rounded,
+        color: const Color(0xFF9333EA),
+      ),
+      ServiceItem(
+        titulo: '📦 Mis Encomiendas',
+        subtitulo: 'Envíos activos',
+        descripcion: 'Revisa y administra todos tus envíos en tiempo real',
+        ruta: Encomiendascreen(),
+        icon: Icons.local_shipping_rounded,
+        color: const Color(0xFF10B981),
+      ),
       ServiceItem(
         titulo: '⚙️ Panel de Control',
         subtitulo: 'Gestión completa',
@@ -260,12 +347,12 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
         color: const Color(0xFF7C3AED),
       ),
       ServiceItem(
-        titulo: '📦 Mis Encomiendas',
-        subtitulo: 'Envíos activos',
-        descripcion: 'Revisa y administra todos tus envíos en tiempo real',
-        ruta: Encomiendascreen(),
-        icon: Icons.local_shipping_rounded,
-        color: const Color(0xFF10B981),
+        titulo: '📖 Guía Rápida',
+        subtitulo: 'Aprende a usar la app',
+        descripcion: 'Tutorial completo para comprar boletos y enviar paquetes',
+        ruta: ManualUsuarioScreen(),
+        icon: Icons.menu_book_rounded,
+        color: const Color(0xFF0EA5E9),
       ),
     ];
   }
@@ -364,14 +451,6 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
         ruta: GestionDatosScreen(),
         icon: Icons.badge_rounded,
         color: const Color(0xFF0891B2),
-      ),
-      ServiceItem(
-        titulo: '📘 Manual Admin',
-        subtitulo: 'Guía completa',
-        descripcion: 'Documentación del panel de administración',
-        ruta: ManualAdministradorScreen(),
-        icon: Icons.admin_panel_settings_rounded,
-        color: const Color(0xFF059669),
       ),
     ];
   }
@@ -557,9 +636,9 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
         gradientColors = [const Color(0xFF2563EB), const Color(0xFF2563EB)];
         break;
       default:
-        badgeText = '👤 INVITADO';
+        badgeText = '👤 GERENTE';
         badgeIcon = Icons.person_outline_rounded;
-        gradientColors = [Colors.grey, Colors.grey];
+        gradientColors = [const Color.fromARGB(255, 245, 232, 51), Colors.grey];
     }
 
     return Container(
