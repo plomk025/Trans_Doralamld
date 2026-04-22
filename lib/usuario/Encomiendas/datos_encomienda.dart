@@ -72,16 +72,16 @@ class EncomiendaData {
 
   Map<String, dynamic> toFirebaseMap() {
     return {
-      'uid': uid,
+      'userId': uid,
       'codigo_envio': codigoEnvio,
       'fecha_creacion': DateTime.now().toIso8601String(),
       'estado': 'pendiente',
       'remitente': {
-        'uid': uid,
+        'userId': uid,
         'nombre': nombreRemitente,
         'cedula': cedulaRemitente,
         'telefono': telefonoRemitente,
-        'correo': correoRemitente,
+        'email': correoRemitente,
         'lugar_salida': lugarSalida,
       },
       'destinatario': {
@@ -89,7 +89,7 @@ class EncomiendaData {
         'telefono': telefonoDestinatario,
         'ciudad': ciudadDestino,
         'cedula': cedulaDestinatario,
-        'correo': correoDestinatario,
+        'email': correoDestinatario,
         'direccion': direccionDestinatario,
         'referencia': referenciaDestinatario,
       },
@@ -399,16 +399,16 @@ class _EnvioScreenState extends State<EnvioScreen> {
       widget.encomiendaData.uid = currentUserUid;
 
       final docData = {
-        'uid': currentUserUid,
+        'userId': currentUserUid,
         'codigo_envio': widget.encomiendaData.codigoEnvio,
         'fecha_creacion': FieldValue.serverTimestamp(),
         'estado': 'pendiente',
         'remitente': {
-          'uid': currentUserUid,
+          'userId': currentUserUid,
           'nombre': widget.encomiendaData.nombreRemitente,
           'cedula': widget.encomiendaData.cedulaRemitente,
           'telefono': widget.encomiendaData.telefonoRemitente,
-          'correo': widget.encomiendaData.correoRemitente,
+          'email': widget.encomiendaData.correoRemitente,
           'lugar_salida': widget.encomiendaData.lugarSalida,
         },
         'destinatario': {
@@ -416,7 +416,7 @@ class _EnvioScreenState extends State<EnvioScreen> {
           'telefono': widget.encomiendaData.telefonoDestinatario,
           'ciudad': widget.encomiendaData.ciudadDestino,
           'cedula': widget.encomiendaData.cedulaDestinatario,
-          'correo': widget.encomiendaData.correoDestinatario,
+          'email': widget.encomiendaData.correoDestinatario,
           'direccion': widget.encomiendaData.direccionDestinatario,
           'referencia': widget.encomiendaData.referenciaDestinatario,
         },
@@ -485,8 +485,8 @@ class _EnvioScreenState extends State<EnvioScreen> {
       print('   Nombre: $nombreRemitente');
 
       await FirebaseFirestore.instance.collection('notificaciones').add({
-        'uid': uid,
-        'correo': correoRemitente,
+        'userId': uid,
+        'email': correoRemitente,
         'nombre_remitente': nombreRemitente,
         'titulo': 'Encomienda Registrada 📦',
         'mensaje': _isAdmin

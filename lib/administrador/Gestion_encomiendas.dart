@@ -74,14 +74,14 @@ class _ConfiguracionEncomiendasState extends State<ConfiguracionEncomiendas>
                   .get();
 
               final encomiendaData = encomiendaDoc.data();
-              final correo = encomiendaData?['remitente']?['correo'] ?? '';
+              final correo = encomiendaData?['remitente']?['email'] ?? '';
               final nombre = encomiendaData?['remitente']?['nombre'] ?? '';
 
               await FirebaseFirestore.instance
                   .collection('notificaciones')
                   .add({
-                'uid': data['uid_remitente'],
-                'correo': correo,
+                'userId': data['uid_remitente'],
+                'email': correo,
                 'nombre_remitente': nombre,
                 'titulo': 'Encomienda Entregada ✅',
                 'mensaje':

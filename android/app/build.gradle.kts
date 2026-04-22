@@ -21,6 +21,7 @@ android {
     }
 
     defaultConfig {
+        
         applicationId = "com.example.app2tesis"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
@@ -65,7 +66,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-base:18.5.0")
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-
++6
     // 👇 Esto es vital para evitar el error de R8 en ML Kit
     implementation("com.google.mlkit:text-recognition:16.0.0")
 }

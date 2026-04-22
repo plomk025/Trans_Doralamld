@@ -47,6 +47,9 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
   bool _isOnline = true;
   int _pendingOperations = 0;
 
+  // Origen del remitente para filtrar buses
+  String? _origenRemitente;
+
   final ImagePicker _picker = ImagePicker();
   final OfflineSyncService _syncService = OfflineSyncService();
   final ConnectivitySyncManager _connectivityManager =
@@ -61,7 +64,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
 
   /// Inicializa el monitoreo de conectividad
   Future<void> _inicializarConectividad() async {
-    // Configurar callbacks
     _connectivityManager.onConnectivityChange = (isOnline) {
       if (mounted) {
         setState(() => _isOnline = isOnline);
@@ -90,10 +92,8 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
       }
     };
 
-    // Inicializar
     await _connectivityManager.initialize();
 
-    // Verificar estado actual
     _isOnline = await _connectivityManager.isOnline();
     final pending = await _connectivityManager.getPendingOperations();
 
@@ -105,61 +105,110 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
   void _cargarDatos() {
     final costos = widget.data['costos'] ?? {};
     final envio = widget.data['envio'] ?? {};
+    final remitente = widget.data['remitente'] ?? {};
 
     _precioTipoController.text = (costos['precio_tipo'] ?? 0).toString();
     _pesoController.text = envio['rango_peso'] ?? '';
 
+    // Obtener origen del remitente (normalizado)
+    _origenRemitente = _normalizarOrigen(
+      remitente['lugar_salida']?.toString() ?? '',
+    );
+
+    debugPrint('📍 Origen detectado: $_origenRemitente');
+
     _cargarBuses();
   }
 
+  /// Normaliza el origen para comparación (ej: "Tulcán" → "tulcan")
+  String _normalizarOrigen(String origen) {
+    return origen
+        .toLowerCase()
+        .trim()
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u')
+        .replaceAll('ñ', 'n');
+  }
+
   Future<void> _cargarBuses() async {
-    print('🔍 ====== INICIANDO CARGA DE BUSES ======');
+    debugPrint('🔍 ====== INICIANDO CARGA DE BUSES ======');
+    debugPrint('📍 Filtrando por origen: $_origenRemitente');
 
     try {
       List<Map<String, dynamic>> buses = [];
 
-      // Cargar buses de Tulcán
-      final busesSnapshot = await FirebaseFirestore.instance
-          .collection('buses_tulcan_salida')
-          .get();
+      // Decidir qué colección(es) consultar según el origen
+      final colecciones = _getColeccionesSegunOrigen(_origenRemitente ?? '');
 
-      for (var doc in busesSnapshot.docs) {
-        final data = doc.data();
-        buses.add({
-          'id': doc.id,
-          'coleccion': 'buses_tulcan_salida',
-          'numero': data['numero']?.toString() ?? 'S/N',
-          'lugar_salida': data['lugar_salida']?.toString() ?? '',
-          'fecha_salida': data['fecha_salida'],
-          'hora_salida': data['hora_salida']?.toString() ?? '',
-          'ruta': data['ruta']?.toString() ?? '',
-        });
+      for (final coleccion in colecciones) {
+        debugPrint('🔄 Consultando: $coleccion');
+
+        final snapshot = await FirebaseFirestore.instance
+            .collection(coleccion)
+            .where('activo', isEqualTo: true)
+            .get();
+
+        debugPrint('   ✅ ${snapshot.docs.length} buses activos en $coleccion');
+
+        for (var doc in snapshot.docs) {
+          final data = doc.data();
+          final lugarSalida = data['lugar_salida']?.toString() ?? '';
+
+          buses.add({
+            'id': doc.id,
+            'coleccion': coleccion,
+            'numero': data['numero']?.toString() ?? 'S/N',
+            'lugar_salida': lugarSalida,
+            'fecha_salida': data['fecha_salida'],
+            'hora_salida': data['hora_salida']?.toString() ?? '',
+            'ruta': data['ruta']?.toString() ?? '',
+          });
+        }
       }
 
-      // Cargar buses de La Esperanza
-      final buses1Snapshot = await FirebaseFirestore.instance
-          .collection('buses_la_esperanza_salida')
-          .get();
+      // Ordenar: primero por lugar_salida (los del origen primero), luego por número
+      buses.sort((a, b) {
+        final origenA = _normalizarOrigen(a['lugar_salida']);
+        final origenB = _normalizarOrigen(b['lugar_salida']);
+        final origenRef = _origenRemitente ?? '';
 
-      for (var doc in buses1Snapshot.docs) {
-        final data = doc.data();
-        buses.add({
-          'id': doc.id,
-          'coleccion': 'buses_la_esperanza_salida',
-          'numero': data['numero']?.toString() ?? 'S/N',
-          'lugar_salida': data['lugar_salida']?.toString() ?? '',
-          'fecha_salida': data['fecha_salida'],
-          'hora_salida': data['hora_salida']?.toString() ?? '',
-          'ruta': data['ruta']?.toString() ?? '',
-        });
-      }
+        // Priorizar los del mismo origen
+        final esOrigenA = origenA == origenRef;
+        final esOrigenB = origenB == origenRef;
+
+        if (esOrigenA && !esOrigenB) return -1;
+        if (!esOrigenA && esOrigenB) return 1;
+
+        // Si ambos son del mismo tipo, ordenar por número
+        return (a['numero']?.toString() ?? '')
+            .compareTo(b['numero']?.toString() ?? '');
+      });
 
       setState(() => _busesDisponibles = buses);
-      print('✅ Total buses cargados: ${_busesDisponibles.length}');
+      debugPrint('✅ Total buses cargados: ${_busesDisponibles.length}');
     } catch (e) {
-      print('❌ ERROR AL CARGAR BUSES: $e');
+      debugPrint('❌ ERROR AL CARGAR BUSES: $e');
       _mostrarError('Error al cargar buses: $e');
       setState(() => _busesDisponibles = []);
+    }
+  }
+
+  /// Devuelve las colecciones a consultar según el origen del remitente
+  List<String> _getColeccionesSegunOrigen(String origen) {
+    final origenNorm = _normalizarOrigen(origen);
+
+    if (origenNorm == 'tulcan') {
+      // Solo buses de Tulcán
+      return ['buses_tulcan_salida'];
+    } else if (origenNorm.isNotEmpty) {
+      // Solo buses de La Esperanza u otros (excluir Tulcán)
+      return ['buses_la_esperanza_salida'];
+    } else {
+      // Si no hay origen definido, mostrar todos
+      return ['buses_tulcan_salida', 'buses_la_esperanza_salida'];
     }
   }
 
@@ -224,12 +273,13 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
   Future<void> _actualizarEncomienda() async {
     // Validaciones según estado
     if (widget.estado == 'pendiente') {
-      if (_precioTipoController.text.trim().isEmpty) {
-        _mostrarError('Ingrese el precio del tipo de encomienda');
-        return;
-      }
+      // ⚠️ Orden de validación actualizado: PESO primero, PRECIO después
       if (_pesoController.text.trim().isEmpty) {
         _mostrarError('Ingrese el peso del paquete');
+        return;
+      }
+      if (_precioTipoController.text.trim().isEmpty) {
+        _mostrarError('Ingrese el precio del tipo de encomienda');
         return;
       }
       if (_imagenTransito == null) {
@@ -250,15 +300,13 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Obtener UID del remitente
-      final remitenteUid = widget.data['remitente']?['uid'];
-      if (remitenteUid == null || remitenteUid.toString().isEmpty) {
+      final remitenteUid = widget.data['remitente']?['userId']?.toString();
+      if (remitenteUid == null || remitenteUid.isEmpty) {
         _mostrarError('No se encontró el UID del remitente');
         setState(() => _isLoading = false);
         return;
       }
 
-      // Verificar conectividad
       final hasConnection = await _syncService.hasConnection();
 
       if (widget.estado == 'pendiente') {
@@ -267,7 +315,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         await _procesarEstadoEnTransito(remitenteUid, hasConnection);
       }
 
-      // Mostrar mensaje según conectividad
       if (hasConnection) {
         _mostrarExito('✅ Encomienda actualizada exitosamente');
       } else {
@@ -275,20 +322,18 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
             '📴 Actualización guardada. Se sincronizará al conectarse');
       }
 
-      // Actualizar contador de pendientes
       final pending = await _connectivityManager.getPendingOperations();
       setState(() => _pendingOperations = pending.total);
 
       Navigator.pop(context);
     } catch (e) {
-      print('❌ Error al actualizar: $e');
+      debugPrint('❌ Error al actualizar: $e');
       _mostrarError('Error al actualizar: $e');
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  /// Procesa actualización desde estado pendiente
   Future<void> _procesarEstadoPendiente(
       String remitenteUid, bool hasConnection) async {
     final precioTipo = double.parse(_precioTipoController.text.trim());
@@ -306,9 +351,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     };
 
     if (hasConnection) {
-      // ✅ CON INTERNET: Proceso normal
       try {
-        // Subir imagen
         final rutaStorage =
             'encomiendas/${widget.codigo}/transito-${DateTime.now().millisecondsSinceEpoch}.jpg';
         final ref = FirebaseStorage.instance.ref().child(rutaStorage);
@@ -317,13 +360,11 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
 
         updateData['imagenes.transito'] = urlImagen;
 
-        // Actualizar Firestore
         await FirebaseFirestore.instance
             .collection('encomiendas_registradas')
             .doc(widget.codigo)
             .update(updateData);
 
-        // Asignar a bus
         await FirebaseFirestore.instance
             .collection(busData['coleccion'])
             .doc(_busSeleccionado)
@@ -331,24 +372,20 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
           'encomiendas': FieldValue.arrayUnion([widget.codigo])
         }, SetOptions(merge: true));
 
-        // Crear notificación
         await _crearNotificacionOnline(remitenteUid, 'en_transito');
       } catch (e) {
-        print('❌ Error en proceso online: $e');
+        debugPrint('❌ Error en proceso online: $e');
         rethrow;
       }
     } else {
-      // 📴 SIN INTERNET: Guardar para sincronización
-      print(
+      debugPrint(
           '📴 Modo offline: Guardando actualización para sincronizar después');
 
-      // Actualizar Firestore localmente (se sincronizará con Firebase)
       await FirebaseFirestore.instance
           .collection('encomiendas_registradas')
           .doc(widget.codigo)
           .update(updateData);
 
-      // Guardar actualización pendiente con imagen
       await _syncService.guardarActualizacionPendiente(
         codigoEncomienda: widget.codigo,
         updateData: updateData,
@@ -358,12 +395,10 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         campoImagen: 'imagenes.transito',
       );
 
-      // Guardar notificación pendiente
       await _guardarNotificacionPendiente(remitenteUid, 'en_transito');
     }
   }
 
-  /// Procesa actualización desde estado en tránsito
   Future<void> _procesarEstadoEnTransito(
       String remitenteUid, bool hasConnection) async {
     final updateData = <String, dynamic>{
@@ -372,9 +407,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     };
 
     if (hasConnection) {
-      // ✅ CON INTERNET: Proceso normal
       try {
-        // Subir imagen
         final rutaStorage =
             'encomiendas/${widget.codigo}/entregada-${DateTime.now().millisecondsSinceEpoch}.jpg';
         final ref = FirebaseStorage.instance.ref().child(rutaStorage);
@@ -383,30 +416,25 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
 
         updateData['imagenes.entregada'] = urlImagen;
 
-        // Actualizar Firestore
         await FirebaseFirestore.instance
             .collection('encomiendas_registradas')
             .doc(widget.codigo)
             .update(updateData);
 
-        // Crear notificación
         await _crearNotificacionOnline(remitenteUid, 'entregado');
       } catch (e) {
-        print('❌ Error en proceso online: $e');
+        debugPrint('❌ Error en proceso online: $e');
         rethrow;
       }
     } else {
-      // 📴 SIN INTERNET: Guardar para sincronización
-      print(
+      debugPrint(
           '📴 Modo offline: Guardando actualización para sincronizar después');
 
-      // Actualizar Firestore localmente
       await FirebaseFirestore.instance
           .collection('encomiendas_registradas')
           .doc(widget.codigo)
           .update(updateData);
 
-      // Guardar actualización pendiente con imagen
       await _syncService.guardarActualizacionPendiente(
         codigoEncomienda: widget.codigo,
         updateData: updateData,
@@ -416,18 +444,16 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         campoImagen: 'imagenes.entregada',
       );
 
-      // Guardar notificación pendiente
       await _guardarNotificacionPendiente(remitenteUid, 'entregado');
     }
   }
 
-  /// Crea notificación cuando hay conexión
   Future<void> _crearNotificacionOnline(
       String uidRemitente, String nuevoEstado) async {
     try {
       final remitente = widget.data['remitente'] ?? {};
       final destinatario = widget.data['destinatario'] ?? {};
-      final correoRemitente = remitente['correo'] ?? '';
+      final correoRemitente = remitente['email'] ?? '';
       final nombreRemitente = remitente['nombre'] ?? '';
       final destinoCiudad = destinatario['ciudad'] ?? '';
 
@@ -455,10 +481,9 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
           accion = 'actualizacion';
       }
 
-      // Crear notificación en Firestore
       await FirebaseFirestore.instance.collection('notificaciones').add({
-        'uid': uidRemitente,
-        'correo': correoRemitente,
+        'userId': uidRemitente,
+        'email': correoRemitente,
         'nombre_remitente': nombreRemitente,
         'titulo': titulo,
         'mensaje': mensaje,
@@ -470,7 +495,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         'accion': accion,
       });
 
-      // Enviar push notification
       await _enviarNotificacionPush(
         uidRemitente: uidRemitente,
         titulo: titulo,
@@ -479,18 +503,17 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
         estado: nuevoEstado,
       );
 
-      print('✅ Notificación creada y enviada');
+      debugPrint('✅ Notificación creada y enviada');
     } catch (e) {
-      print('❌ Error al crear notificación: $e');
+      debugPrint('❌ Error al crear notificación: $e');
     }
   }
 
-  /// Guarda notificación para enviar después (offline)
   Future<void> _guardarNotificacionPendiente(
       String uidRemitente, String nuevoEstado) async {
     final remitente = widget.data['remitente'] ?? {};
     final destinatario = widget.data['destinatario'] ?? {};
-    final correoRemitente = remitente['correo'] ?? '';
+    final correoRemitente = remitente['email'] ?? '';
     final nombreRemitente = remitente['nombre'] ?? '';
     final destinoCiudad = destinatario['ciudad'] ?? '';
 
@@ -529,7 +552,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
       accion: accion,
     );
 
-    print('✅ Notificación guardada para enviar después');
+    debugPrint('✅ Notificación guardada para enviar después');
   }
 
   Future<void> _enviarNotificacionPush({
@@ -564,12 +587,13 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        print('✅ Push notification enviada exitosamente');
+        debugPrint('✅ Push notification enviada exitosamente');
       } else {
-        print('⚠️ Error al enviar push notification: ${response.statusCode}');
+        debugPrint(
+            '⚠️ Error al enviar push notification: ${response.statusCode}');
       }
     } catch (e) {
-      print('❌ Error en _enviarPushNotification: $e');
+      debugPrint('❌ Error en _enviarPushNotification: $e');
     }
   }
 
@@ -639,7 +663,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                 color: darkGray,
               ),
             ),
-            // Indicador de estado de conexión
             Row(
               children: [
                 Icon(
@@ -680,7 +703,6 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
           ],
         ),
         actions: [
-          // Botón de sincronización manual
           if (_pendingOperations > 0 && _isOnline)
             IconButton(
               icon: const Icon(Icons.sync, color: accentBlue),
@@ -720,11 +742,11 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
 
             const SizedBox(height: 20),
 
-            // Campos según estado
+            // ⚠️ ORDEN ACTUALIZADO: PESO primero, PRECIO después
             if (widget.estado == 'pendiente') ...[
-              _buildPrecioCard(),
-              const SizedBox(height: 20),
               _buildPesoCard(),
+              const SizedBox(height: 20),
+              _buildPrecioCard(),
               const SizedBox(height: 20),
               _buildBusesCard(),
               const SizedBox(height: 20),
@@ -872,6 +894,61 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     );
   }
 
+  Widget _buildPesoCard() {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: successGreen.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.monitor_weight,
+                      color: successGreen, size: 24),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Peso de la Encomienda',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: darkGray,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _pesoController,
+              keyboardType: TextInputType.text,
+              decoration: InputDecoration(
+                labelText: 'Peso *',
+                hintText: 'Ej: 5 kg, 2.5 kg, 10 kg',
+                prefixIcon:
+                    const Icon(Icons.monitor_weight, color: successGreen),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: successGreen, width: 2),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPrecioCard() {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -894,7 +971,7 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                 ),
                 const SizedBox(width: 12),
                 const Text(
-                  'Precio de la encomienda',
+                  'Precio de la Encomienda',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -927,69 +1004,68 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
     );
   }
 
-  Widget _buildPesoCard() {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: successGreen.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
+  Widget _buildBusesCard() {
+    // Agrupar solo si hay buses
+    if (_busesDisponibles.isEmpty) {
+      return Card(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: accentBlue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.directions_bus,
+                        color: accentBlue, size: 24),
                   ),
-                  child: const Icon(Icons.monitor_weight,
-                      color: successGreen, size: 24),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Peso de la encomienda',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: darkGray,
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Asignar a Bus',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: darkGray,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _pesoController,
-              keyboardType: TextInputType.text,
-              decoration: InputDecoration(
-                labelText: 'Peso *',
-                hintText: '5 kg, 2.5 kg, 10 kg',
-                prefixIcon:
-                    const Icon(Icons.monitor_weight, color: successGreen),
-                border: OutlineInputBorder(
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: warningRed.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: warningRed.withOpacity(0.3)),
                 ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: successGreen, width: 2),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: warningRed, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'No hay buses activos disponibles para el origen: ${_origenRemitente ?? "desconocido"}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: darkGray,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildBusesCard() {
-    Map<String, List<Map<String, dynamic>>> busesPorLugar = {};
-    for (var bus in _busesDisponibles) {
-      final lugar = bus['lugar_salida']?.toString() ?? 'Sin lugar';
-      if (!busesPorLugar.containsKey(lugar)) {
-        busesPorLugar[lugar] = [];
-      }
-      busesPorLugar[lugar]!.add(bus);
+      );
     }
 
     return Card(
@@ -1025,8 +1101,8 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
                         ),
                       ),
                       Text(
-                        'Selecciona el bus de cualquier origen',
-                        style: TextStyle(
+                        'Buses del origen: ${_origenRemitente ?? "todos"}',
+                        style: const TextStyle(
                           fontSize: 12,
                           color: mediumGray,
                           fontWeight: FontWeight.w500,
@@ -1038,128 +1114,82 @@ class _DetalleEncomiendaScreenState extends State<DetalleEncomiendaScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            if (_busesDisponibles.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: lightGray,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: mediumGray.withOpacity(0.3)),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _busSeleccionado,
-                    isExpanded: true,
-                    hint: const Text('Seleccionar bus'),
-                    items: busesPorLugar.entries.expand((entry) {
-                      final lugar = entry.key;
-                      final busesDelLugar = entry.value;
-
-                      return [
-                        DropdownMenuItem<String>(
-                          enabled: false,
-                          value: null,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Text(
-                              '📍 $lugar',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w900,
-                                color: accentBlue,
-                              ),
-                            ),
-                          ),
-                        ),
-                        ...busesDelLugar.map((bus) {
-                          String fechaTexto = 'Sin fecha';
-                          if (bus['fecha_salida'] != null) {
-                            try {
-                              if (bus['fecha_salida'] is Timestamp) {
-                                final fecha =
-                                    (bus['fecha_salida'] as Timestamp).toDate();
-                                fechaTexto =
-                                    '${fecha.day}/${fecha.month}/${fecha.year}';
-                              }
-                            } catch (e) {
-                              print('Error formateando fecha: $e');
-                            }
-                          }
-
-                          return DropdownMenuItem<String>(
-                            value: bus['id'] as String,
-                            child: Padding(
-                              padding: const EdgeInsets.only(left: 16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: bus['coleccion'] ==
-                                                  'buses_tulcan_salida'
-                                              ? Colors.blue.shade100
-                                              : Colors.green.shade100,
-                                          borderRadius:
-                                              BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          bus['coleccion'] ==
-                                                  'buses_tulcan_salida'
-                                              ? 'Tulcán'
-                                              : 'Otros',
-                                          style: TextStyle(
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w700,
-                                            color: bus['coleccion'] ==
-                                                    'buses_tulcan_salida'
-                                                ? Colors.blue.shade900
-                                                : Colors.green.shade900,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Bus ${bus['numero']}',
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '$fechaTexto | ${bus['hora_salida']} | ${bus['ruta'] ?? 'Sin ruta'}',
-                                    style: const TextStyle(
-                                        fontSize: 11, color: mediumGray),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ];
-                    }).toList(),
-                    onChanged: (value) =>
-                        setState(() => _busSeleccionado = value),
-                  ),
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: warningRed.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: warningRed.withOpacity(0.3)),
-                ),
-                child: const Text('No hay buses disponibles'),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: lightGray,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: mediumGray.withOpacity(0.3)),
               ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _busSeleccionado,
+                  isExpanded: true,
+                  hint: const Text('Seleccionar bus'),
+                  items: _busesDisponibles.map((bus) {
+                    String fechaTexto = 'Sin fecha';
+                    if (bus['fecha_salida'] != null) {
+                      try {
+                        if (bus['fecha_salida'] is Timestamp) {
+                          final fecha =
+                              (bus['fecha_salida'] as Timestamp).toDate();
+                          fechaTexto =
+                              '${fecha.day.toString().padLeft(2, '0')}/${fecha.month.toString().padLeft(2, '0')}/${fecha.year}';
+                        }
+                      } catch (e) {
+                        debugPrint('Error formateando fecha: $e');
+                      }
+                    }
+
+                    return DropdownMenuItem<String>(
+                      value: bus['id'] as String,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: accentBlue.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  bus['lugar_salida'],
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                    color: accentBlue,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Bus ${bus['numero']}',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$fechaTexto | ${bus['hora_salida']} | ${bus['ruta'] ?? 'Sin ruta'}',
+                            style: const TextStyle(
+                                fontSize: 11, color: mediumGray),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) =>
+                      setState(() => _busSeleccionado = value),
+                ),
+              ),
+            ),
           ],
         ),
       ),

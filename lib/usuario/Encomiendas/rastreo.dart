@@ -542,7 +542,7 @@ class _RastreoEncomiendaScreenState extends State<RastreoEncomiendaScreen> {
             _buildInfoRow('Nombre', remitente['nombre'] ?? 'N/A'),
             _buildInfoRow('Cédula', remitente['cedula'] ?? 'N/A'),
             _buildInfoRow('Teléfono', remitente['telefono'] ?? 'N/A'),
-            _buildInfoRow('Correo', remitente['correo'] ?? 'N/A'),
+            _buildInfoRow('Email', remitente['email'] ?? 'N/A'),
             _buildInfoRow('Origen', remitente['lugar_salida'] ?? 'N/A'),
           ],
         ),
@@ -558,8 +558,8 @@ class _RastreoEncomiendaScreenState extends State<RastreoEncomiendaScreen> {
             if (destinatario['cedula'] != null)
               _buildInfoRow('Cédula', destinatario['cedula']),
             _buildInfoRow('Teléfono', destinatario['telefono'] ?? 'N/A'),
-            if (destinatario['correo'] != null)
-              _buildInfoRow('Correo', destinatario['correo']),
+            if (destinatario['email'] != null)
+              _buildInfoRow('Email', destinatario['email']),
             _buildInfoRow('Ciudad', destinatario['ciudad'] ?? 'N/A'),
             if (destinatario['direccion'] != null)
               _buildInfoRow('Dirección', destinatario['direccion']),

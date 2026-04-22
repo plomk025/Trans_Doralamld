@@ -14,11 +14,20 @@ enum EstadoAsiento {
 }
 
 class ColoresAsientos {
-  static const Color disponible = Color(0xFFCDD3DD);
-  static const Color intentandoReservar = Color(0xFFF4A259);
-  static const Color reservado = Color(0xFF1B4965);
-  static const Color pagado = Color(0xFF4CAF50);
-  static const Color seleccionado = Color(0xFF940016);
+  // Disponible → Verde elegante (premium / calma)
+  static const Color disponible = Color(0xFF1B5E20);
+
+  // Intentando reservar → Amarillo mostaza profesional
+  static const Color intentandoReservar = Color(0xFFFFC107);
+
+  // Reservado → Amarillo oscuro / ámbar profundo
+  static const Color reservado = Color(0xFFFFA000);
+
+  // Pagado → Rojo vino (fuerte pero elegante)
+  static const Color pagado = Color(0xFFB71C1C);
+
+  // Seleccionado → Gris claro moderno
+  static const Color seleccionado = Color(0xFFE0E0E0);
 }
 
 class LimitesReserva {
@@ -1580,7 +1589,7 @@ class _AsientosScreen2State extends State<AsientosScreen2>
                         children: [
                           // 🆕
                           Text(
-                            ' ${widget.chofer}', // 🆕
+                            widget.chofer.toUpperCase(),
                             style: TextStyle(
                               color: mainRed,
                               fontSize: 14,

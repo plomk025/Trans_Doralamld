@@ -155,7 +155,7 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
       bool esEncomienda = data['tipo'] == 'encomienda';
 
       if (esEncomienda) {
-        if (data['correo'] == widget.userEmail) {
+        if (data['email'] == widget.userEmail) {
           items.add({
             'docId': docId,
             'mensaje': data['titulo'] ?? 'Encomienda Actualizada',
@@ -231,7 +231,7 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
           data['mensaje3'] != null && data['mensaje3'].toString().isNotEmpty;
 
       if (esEncomienda) {
-        if (data['correo'] == widget.userEmail &&
+        if (data['email'] == widget.userEmail &&
             (data['leida'] ?? false) == false) count++;
         continue;
       }
@@ -317,8 +317,8 @@ class _NotificacionesScreenState extends State<NotificacionesScreen>
           bool esGlobal = data['mensaje3'] != null &&
               data['mensaje3'].toString().isNotEmpty;
           if (esGlobal && _estaOcultadaParaUsuario(data)) return false;
-          if (data['tipo'] == 'encomienda' &&
-              data['correo'] == widget.userEmail) return true;
+          if (data['tipo'] == 'encomienda' && data['email'] == widget.userEmail)
+            return true;
           if (esGlobal) return true;
           if (data['email'] == widget.userEmail) return true;
           return false;
@@ -829,7 +829,7 @@ class NotificacionesBadge extends StatelessWidget {
           data['mensaje3'] != null && data['mensaje3'].toString().isNotEmpty;
 
       if (esEncomienda) {
-        if (data['correo'] == userEmail && (data['leida'] ?? false) == false)
+        if (data['email'] == userEmail && (data['leida'] ?? false) == false)
           count++;
         continue;
       }

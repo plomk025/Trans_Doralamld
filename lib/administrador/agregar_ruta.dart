@@ -51,7 +51,7 @@ class _AgregarNombrePageState extends State<AgregarNombrePage> {
       if (userDoc.exists) {
         final rol = userDoc.data()?['rol'] ?? '';
         setState(() {
-          _isAdmin = rol.toLowerCase() == 'administrador';
+          _isAdmin = rol.toLowerCase() == 'gerente';
           _isLoadingRole = false;
         });
       } else {

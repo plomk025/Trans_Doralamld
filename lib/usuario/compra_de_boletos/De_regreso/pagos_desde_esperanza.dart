@@ -47,6 +47,9 @@ class _PagoScreen2State extends State<PagoScreen2>
   String? _mensajeValidacion;
   bool _isAdmin = false;
 
+  // Rol exacto del usuario: 'administrador', 'gerente', o ''
+  String _rolUsuario = '';
+
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
 
@@ -62,6 +65,18 @@ class _PagoScreen2State extends State<PagoScreen2>
   final Color mainRed = const Color(0xFF940016);
   final Color accentRed = const Color(0xFFEF4444);
   final Color accentYellow = const Color(0xFFF59E0B);
+
+  // Color del badge según rol
+  Color get _badgeColor {
+    if (_rolUsuario == 'gerente') return const Color(0xFF7C3AED); // morado
+    return successGreen; // verde para administrador
+  }
+
+  // Etiqueta del badge según rol
+  String get _badgeLabel {
+    if (_rolUsuario == 'gerente') return 'GERENTE';
+    return 'ADMIN';
+  }
 
   @override
   void initState() {
@@ -88,18 +103,20 @@ class _PagoScreen2State extends State<PagoScreen2>
   }
 
   Future<void> _verificarRolAdmin() async {
-    final esAdmin = await _esAdministrador();
+    final rolObtenido = await _obtenerRolPrivilegiado();
     if (mounted) {
       setState(() {
-        _isAdmin = esAdmin;
+        _rolUsuario = rolObtenido;
+        _isAdmin = rolObtenido == 'administrador' || rolObtenido == 'gerente';
       });
     }
   }
 
-  Future<bool> _esAdministrador() async {
+  /// Devuelve el rol del usuario si es 'administrador' o 'gerente', o '' si no.
+  Future<String> _obtenerRolPrivilegiado() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return false;
+      if (user == null) return '';
 
       final doc = await FirebaseFirestore.instance
           .collection('usuarios_registrados')
@@ -109,13 +126,19 @@ class _PagoScreen2State extends State<PagoScreen2>
       if (doc.exists) {
         final rol = doc.data()?['rol']?.toString().toLowerCase() ?? '';
         debugPrint('🔍 Rol del usuario: $rol');
-        return rol == 'administrador';
+        if (rol == 'administrador' || rol == 'gerente') return rol;
       }
-      return false;
+      return '';
     } catch (e) {
-      debugPrint('❌ Error al verificar administrador: $e');
-      return false;
+      debugPrint('❌ Error al verificar rol: $e');
+      return '';
     }
+  }
+
+  /// Mantiene compatibilidad: devuelve true si el usuario tiene rol privilegiado.
+  Future<bool> _esAdministrador() async {
+    final rol = await _obtenerRolPrivilegiado();
+    return rol.isNotEmpty;
   }
 
   Future<bool> _validarComprobanteTransferencia(File imagen) async {
@@ -580,8 +603,10 @@ class _PagoScreen2State extends State<PagoScreen2>
         debugPrint('⚠️ No se pudo obtener userId');
 
         if (_isAdmin) {
-          userIdFinal = 'admin_${DateTime.now().millisecondsSinceEpoch}';
-          debugPrint('⚠️ Admin sin userId - usando temporal: $userIdFinal');
+          userIdFinal =
+              '${_rolUsuario}_${DateTime.now().millisecondsSinceEpoch}';
+          debugPrint(
+              '⚠️ ${_badgeLabel} sin userId - usando temporal: $userIdFinal');
         } else {
           throw Exception(
               'Error: No se pudo identificar al usuario. Por favor, cierra sesión y vuelve a iniciar.');
@@ -597,7 +622,7 @@ class _PagoScreen2State extends State<PagoScreen2>
       debugPrint('   email: ${widget.userEmail}');
       debugPrint('   método: $metodoPagoSeleccionado');
       debugPrint('   asiento: ${widget.asientoSeleccionado}');
-      debugPrint('   esAdmin: $_isAdmin');
+      debugPrint('   rol: $_rolUsuario');
 
       String? urlComprobante;
       if (metodoPagoSeleccionado == 'transferencia') {
@@ -624,6 +649,7 @@ class _PagoScreen2State extends State<PagoScreen2>
             'Tu comprobante está en revisión. El asiento ${widget.asientoSeleccionado} quedará reservado hasta la verificación. Te notificaremos cuando sea aprobado.';
       } else if (metodoPagoSeleccionado == 'efectivo') {
         if (_isAdmin) {
+          // Tanto administrador como gerente confirman el pago inmediatamente
           estadoReserva = 'aprobado';
           estadoAsiento = 'pagado';
           tipoNotificacion = 'compra_aprobada';
@@ -662,7 +688,8 @@ class _PagoScreen2State extends State<PagoScreen2>
         'estado': estadoReserva,
         'fechaReserva': FieldValue.serverTimestamp(),
         'paradaNombre': widget.paradaNombre,
-        'procesadoPor': _isAdmin ? 'admin' : 'usuario',
+        // Guarda el rol exacto: 'administrador', 'gerente', o 'usuario'
+        'procesadoPor': _isAdmin ? _rolUsuario : 'usuario',
       };
 
       if (urlComprobante != null && urlComprobante.isNotEmpty) {
@@ -677,8 +704,9 @@ class _PagoScreen2State extends State<PagoScreen2>
       final reservaRef = await db.collection('reservas').add(reservaData);
       debugPrint('✅ Reserva creada con ID: ${reservaRef.id}');
 
+      // Administrador Y gerente crean el documento en 'comprados' inmediatamente
       if (estadoReserva == 'aprobado' && _isAdmin) {
-        debugPrint('📝 Creando documento en comprados (admin)...');
+        debugPrint('📝 Creando documento en comprados ($_rolUsuario)...');
 
         try {
           final compradoData = <String, dynamic>{
@@ -695,7 +723,8 @@ class _PagoScreen2State extends State<PagoScreen2>
             'fechaCompra': FieldValue.serverTimestamp(),
             'paradaNombre': widget.paradaNombre,
             'reservaId': reservaRef.id,
-            'aprobadoPor': 'admin',
+            // Guarda el rol exacto de quien aprobó
+            'aprobadoPor': _rolUsuario,
           };
 
           if (urlComprobante != null && urlComprobante.isNotEmpty) {
@@ -703,7 +732,8 @@ class _PagoScreen2State extends State<PagoScreen2>
           }
 
           await db.collection('comprados').add(compradoData);
-          debugPrint('✅ Documento de compra creado');
+          debugPrint(
+              '✅ Documento de compra creado (aprobado por: $_rolUsuario)');
         } catch (e) {
           debugPrint('⚠️ Error al crear comprado (no crítico): $e');
         }
@@ -765,6 +795,7 @@ class _PagoScreen2State extends State<PagoScreen2>
       await busRef.update({'asientos': asientos});
       debugPrint('✅ Asiento actualizado correctamente');
 
+      // Administrador y gerente no reciben notificación propia
       if (!_isAdmin) {
         debugPrint('📝 Creando notificación...');
 
@@ -780,7 +811,7 @@ class _PagoScreen2State extends State<PagoScreen2>
           debugPrint('⚠️ Error al crear notificación (no crítico): $e');
         }
       } else {
-        debugPrint('ℹ️ Usuario administrador - No se crea notificación');
+        debugPrint('ℹ️ Usuario con rol $_rolUsuario - No se crea notificación');
       }
 
       if (!mounted) return;
@@ -1043,18 +1074,19 @@ class _PagoScreen2State extends State<PagoScreen2>
                                       letterSpacing: 0.5,
                                     ),
                                   ),
+                                  // Badge dinámico: muestra ADMIN o GERENTE según el rol
                                   if (_isAdmin) ...[
                                     const SizedBox(width: 6),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: successGreen,
+                                        color: _badgeColor,
                                         borderRadius: BorderRadius.circular(4),
                                       ),
-                                      child: const Text(
-                                        'ADMIN',
-                                        style: TextStyle(
+                                      child: Text(
+                                        _badgeLabel,
+                                        style: const TextStyle(
                                           fontSize: 8,
                                           color: Colors.white,
                                           fontWeight: FontWeight.w700,
@@ -1450,11 +1482,12 @@ class _PagoScreen2State extends State<PagoScreen2>
                       const SizedBox(height: 12),
                       _buildDatoBancario('Tipo de Cuenta', 'Ahorros'),
                       const SizedBox(height: 12),
-                      _buildDatoBancario('Número de Cuenta', '2214150854'),
+                      _buildDatoBancario('Número de Cuenta', '2100123456'),
                       const SizedBox(height: 12),
-                      _buildDatoBancario('Titular', 'Lima Chamba'),
+                      _buildDatoBancario(
+                          'Titular', 'Empresa de Transporte XYZ'),
                       const SizedBox(height: 12),
-                      _buildDatoBancario('Cedula', '0402174965'),
+                      _buildDatoBancario('RUC', '1234567890001'),
                     ],
                   ),
                 ),

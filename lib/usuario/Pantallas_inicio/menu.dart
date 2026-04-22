@@ -6,7 +6,7 @@ import 'package:app2tesis/administrador/gestion_de_datos.dart';
 import 'package:app2tesis/administrador/Gestion_encomiendas.dart';
 import 'package:app2tesis/administrador/manual_administrador.dart';
 import 'package:app2tesis/usuario/Encomiendas/encomiendas.dart';
-import 'package:app2tesis/usuario/Pantallas_inicio/manual_usuario.dart';
+import 'package:app2tesis/usuario/manual_usuario.dart';
 import 'package:app2tesis/usuario/compra_de_boletos/selecciona_tu_destino.dart';
 import 'package:app2tesis/usuario/historial.dart';
 import 'package:app2tesis/administrador/verificacion_de_pagos.dart';
@@ -576,11 +576,11 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
   Widget _buildHeaderTitle(bool isAdmin, bool isConductor) {
     String title;
     if (isAdmin) {
-      title = '🎛️ Panel de Administración';
+      title = '📲 Panel de Administración';
     } else if (isConductor) {
-      title = '🚗 Panel de Conductor';
+      title = ' 🚌 Panel de Conductor';
     } else {
-      title = '🚀 ¿Qué deseas hacer hoy?';
+      title = '🛣️ ¿Qué deseas hacer hoy?';
     }
 
     return Text(
@@ -597,7 +597,7 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
   Widget _buildHeaderSubtitle(bool isAdmin, bool isConductor) {
     String subtitle;
     if (isAdmin) {
-      subtitle = 'Control total del sistema de transporte';
+      subtitle = 'Gestiona rutas, encomiendas y más';
     } else if (isConductor) {
       subtitle = 'Gestiona tus viajes y encomiendas';
     } else {
@@ -626,7 +626,7 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
         gradientColors = [AppColors.accentOrange, AppColors.accentOrange];
         break;
       case UserRole.conductor:
-        badgeText = '🚗 CONDUCTOR';
+        badgeText = '🚌 CONDUCTOR';
         badgeIcon = Icons.local_shipping_rounded;
         gradientColors = [const Color(0xFF7C3AED), const Color(0xFF7C3AED)];
         break;
@@ -638,7 +638,7 @@ class _MenuCuadrosScreenState extends State<MenuCuadrosScreen>
       default:
         badgeText = '👤 GERENTE';
         badgeIcon = Icons.person_outline_rounded;
-        gradientColors = [const Color.fromARGB(255, 245, 232, 51), Colors.grey];
+        gradientColors = [const Color(0xFF2563EB), const Color(0xFF2563EB)];
     }
 
     return Container(

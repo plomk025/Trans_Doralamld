@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -22,7 +23,10 @@ class _AdminVerificacionPagosScreenState
   final FirebaseFirestore db = FirebaseFirestore.instance;
   final FirebaseFunctions functions = FirebaseFunctions.instance;
 
-  String? cooperativaSeleccionada;
+  // ── Lugar seleccionado: guardamos el valor del campo 'lugar' del doc
+  String? lugarSeleccionadoId; // doc ID en lugares_salida
+  String? lugarValor; // campo 'lugar' — se usa para comparar con buses
+
   String? busSeleccionado;
   String filtroEstado = 'pendiente_verificacion';
   String coleccionActual = 'reservas';
@@ -37,14 +41,11 @@ class _AdminVerificacionPagosScreenState
   static const Color accentRed = Color(0xFF940016);
   static const Color warningYellow = Color(0xFFF59E0B);
 
-  String get coleccionBuses {
-    if (cooperativaSeleccionada == 'la_esperanza') {
-      return 'buses_la_esperanza_salida';
-    } else if (cooperativaSeleccionada == 'tulcan') {
-      return 'buses_tulcan_salida';
-    }
-    return 'buses_tulcan_salida';
-  }
+  // Las dos colecciones fijas de buses que se consultan siempre
+  static const List<String> _coleccionesBuses = [
+    'buses_tulcan_salida',
+    'buses_la_esperanza_salida',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -86,6 +87,7 @@ class _AdminVerificacionPagosScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── Top bar ──────────────────────────────────────────────────
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -93,9 +95,7 @@ class _AdminVerificacionPagosScreenState
                     children: [
                       InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: () {
-                          Navigator.pop(context);
-                        },
+                        onTap: () => Navigator.pop(context),
                         child: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -165,7 +165,7 @@ class _AdminVerificacionPagosScreenState
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
-                          children: [
+                          children: const [
                             Icon(Icons.picture_as_pdf,
                                 color: Colors.white, size: 18),
                             SizedBox(width: 6),
@@ -183,6 +183,7 @@ class _AdminVerificacionPagosScreenState
                     ),
                 ],
               ),
+
               const SizedBox(height: 28),
               Text(
                 'Gestión de Pagos',
@@ -214,80 +215,151 @@ class _AdminVerificacionPagosScreenState
               ),
               const SizedBox(height: 24),
 
-              // Selectores modernos
-              _buildModernSelector(
-                label: 'Lugar de Salida',
-                icon: Icons.location_on,
-                value: cooperativaSeleccionada,
-                hint: 'Selecciona cooperativa',
-                items: const [
-                  DropdownMenuItem(
-                    value: 'la_esperanza',
-                    child: Text('🚌 La Esperanza'),
-                  ),
-                  DropdownMenuItem(
-                    value: 'tulcan',
-                    child: Text('🚌 Tulcán'),
-                  ),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    cooperativaSeleccionada = value;
-                    busSeleccionado = null;
-                  });
+              // ── Selector dinámico de Lugar de Salida ──────────────────
+              // Solo muestra lugares que tengan al menos un bus con activo == true
+              StreamBuilder<List<QuerySnapshot>>(
+                stream: _streamLugaresConBusesActivos(),
+                builder: (context, busesSnap) {
+                  // Mientras cargan los buses, mostrar spinner
+                  if (!busesSnap.hasData) {
+                    return Center(
+                      child: CircularProgressIndicator(
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(primaryBusBlue),
+                        strokeWidth: 3,
+                      ),
+                    );
+                  }
+
+                  // Recolectar valores únicos de lugar_salida en buses activos
+                  final Set<String> lugaresConBuses = {};
+                  for (final snap in busesSnap.data!) {
+                    for (final doc in snap.docs) {
+                      final d = doc.data() as Map<String, dynamic>;
+                      final ls = d['lugar_salida']?.toString();
+                      if (ls != null && ls.isNotEmpty) {
+                        lugaresConBuses.add(ls);
+                      }
+                    }
+                  }
+
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: db.collection('lugares_salida').snapshots(),
+                    builder: (context, lugaresSnap) {
+                      if (!lugaresSnap.hasData) {
+                        return Center(
+                          child: CircularProgressIndicator(
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(primaryBusBlue),
+                            strokeWidth: 3,
+                          ),
+                        );
+                      }
+
+                      // Filtrar solo docs cuyo campo 'lugar' tenga buses activos
+                      final docs = lugaresSnap.data!.docs.where((doc) {
+                        final d = doc.data() as Map<String, dynamic>;
+                        final lugar = d['lugar']?.toString() ?? '';
+                        return lugaresConBuses.contains(lugar);
+                      }).toList();
+
+                      if (docs.isEmpty) {
+                        return _buildInfoBanner(
+                          icon: Icons.directions_bus_outlined,
+                          mensaje:
+                              'No hay lugares con buses activos disponibles.',
+                          color: warningYellow,
+                        );
+                      }
+
+                      final items = docs.map((doc) {
+                        final d = doc.data() as Map<String, dynamic>;
+                        final lugar = d['lugar']?.toString() ?? doc.id;
+                        return DropdownMenuItem<String>(
+                          value: doc.id,
+                          child: Text('🚌 $lugar'),
+                        );
+                      }).toList();
+
+                      return _buildModernSelector(
+                        label: 'Lugar de Salida',
+                        icon: Icons.location_on,
+                        value: lugarSeleccionadoId,
+                        hint: 'Selecciona lugar de salida',
+                        items: items,
+                        onChanged: (docId) {
+                          if (docId == null) return;
+                          final doc = docs.firstWhere((d) => d.id == docId);
+                          final d = doc.data() as Map<String, dynamic>;
+                          setState(() {
+                            lugarSeleccionadoId = docId;
+                            lugarValor = d['lugar']?.toString() ?? '';
+                            busSeleccionado = null;
+                          });
+                        },
+                      );
+                    },
+                  );
                 },
               ),
 
-              if (cooperativaSeleccionada != null) ...[
+              // ── Selector de Bus: busca en AMBAS colecciones
+              //    donde lugar_salida == lugarValor  Y  activo == true ──
+              if (lugarSeleccionadoId != null && lugarValor != null) ...[
                 const SizedBox(height: 16),
-                StreamBuilder<QuerySnapshot>(
-                  stream: db.collection(coleccionBuses).snapshots(),
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) {
-                      return Center(
-                        child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(primaryBusBlue),
-                          strokeWidth: 3,
-                        ),
-                      );
-                    }
-
-                    List<DropdownMenuItem<String>> items = [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text('Todos los buses'),
-                      ),
-                    ];
-
-                    for (var doc in snapshot.data!.docs) {
-                      var data = doc.data() as Map<String, dynamic>;
-                      items.add(
-                        DropdownMenuItem(
-                          value: doc.id,
-                          child: Text('Bus ${data['numero'] ?? doc.id}'),
-                        ),
-                      );
-                    }
-
-                    return _buildModernSelector(
-                      label: 'Seleccionar Bus',
-                      icon: Icons.directions_bus_rounded,
-                      value: busSeleccionado,
-                      hint: 'Todos los buses',
-                      items: items,
-                      onChanged: (value) {
-                        setState(() {
-                          busSeleccionado = value;
-                        });
-                      },
-                    );
+                _BusActivoSelector(
+                  db: db,
+                  lugarValor: lugarValor!,
+                  colecciones: _coleccionesBuses,
+                  busSeleccionado: busSeleccionado,
+                  primaryColor: primaryBusBlue,
+                  darkNavy: darkNavy,
+                  textGray: textGray,
+                  warningYellow: warningYellow,
+                  onChanged: (busId) {
+                    setState(() {
+                      busSeleccionado = busId;
+                    });
                   },
+                  buildSelector: _buildModernSelector,
+                  buildBanner: _buildInfoBanner,
                 ),
               ],
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ── Banner informativo ────────────────────────────────────────────────
+  Widget _buildInfoBanner({
+    required IconData icon,
+    required String mensaje,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              mensaje,
+              style: TextStyle(
+                fontSize: 13,
+                color: darkNavy,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -335,7 +407,7 @@ class _AdminVerificacionPagosScreenState
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
             blurRadius: 8,
-            offset: Offset(0, 2),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -349,8 +421,8 @@ class _AdminVerificacionPagosScreenState
             fontWeight: FontWeight.w600,
           ),
           prefixIcon: Container(
-            margin: EdgeInsets.all(12),
-            padding: EdgeInsets.all(8),
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: primaryBusBlue.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
@@ -371,12 +443,13 @@ class _AdminVerificacionPagosScreenState
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: primaryBusBlue, width: 2),
           ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         ),
         items: items,
         onChanged: onChanged,
         hint: Text(hint),
-        icon: Icon(Icons.arrow_drop_down, color: darkNavy),
+        icon: const Icon(Icons.arrow_drop_down, color: darkNavy),
         style: TextStyle(
           fontSize: 14,
           color: darkNavy,
@@ -443,9 +516,7 @@ class _AdminVerificacionPagosScreenState
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           gradient: seleccionado
-              ? LinearGradient(
-                  colors: [color, color.withOpacity(0.8)],
-                )
+              ? LinearGradient(colors: [color, color.withOpacity(0.8)])
               : null,
           color: seleccionado ? null : Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -472,11 +543,7 @@ class _AdminVerificacionPagosScreenState
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: seleccionado ? Colors.white : color,
-              size: 18,
-            ),
+            Icon(icon, color: seleccionado ? Colors.white : color, size: 18),
             const SizedBox(width: 8),
             Text(
               label,
@@ -494,7 +561,7 @@ class _AdminVerificacionPagosScreenState
   }
 
   Widget _buildListaReservas() {
-    if (cooperativaSeleccionada == null || busSeleccionado == null) {
+    if (lugarSeleccionadoId == null || busSeleccionado == null) {
       return _buildEmptyState();
     }
 
@@ -548,20 +615,16 @@ class _AdminVerificacionPagosScreenState
           children: [
             Container(
               padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: lightBg,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.info_outline,
-                size: 64,
-                color: textGray,
-              ),
+              child: Icon(Icons.info_outline, size: 64, color: textGray),
             ),
             const SizedBox(height: 24),
             Text(
-              cooperativaSeleccionada == null
-                  ? 'Selecciona una cooperativa'
+              lugarSeleccionadoId == null
+                  ? 'Selecciona un lugar de salida'
                   : 'Selecciona un bus',
               style: TextStyle(
                 fontSize: 20,
@@ -571,9 +634,9 @@ class _AdminVerificacionPagosScreenState
             ),
             const SizedBox(height: 8),
             Text(
-              cooperativaSeleccionada == null
-                  ? 'Elige entre La Esperanza o Tulcán'
-                  : 'Elige el bus para ver las reservas',
+              lugarSeleccionadoId == null
+                  ? 'Elige el lugar de salida para continuar'
+                  : 'Elige el bus activo para ver las reservas',
               style: TextStyle(fontSize: 14, color: textGray),
             ),
           ],
@@ -591,15 +654,11 @@ class _AdminVerificacionPagosScreenState
           children: [
             Container(
               padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: lightBg,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.inbox_outlined,
-                size: 64,
-                color: textGray,
-              ),
+              child: Icon(Icons.inbox_outlined, size: 64, color: textGray),
             ),
             const SizedBox(height: 24),
             Text(
@@ -660,7 +719,6 @@ class _AdminVerificacionPagosScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header con estado y precio
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -668,9 +726,7 @@ class _AdminVerificacionPagosScreenState
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
+                          horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [estadoColor, estadoColor.withOpacity(0.8)],
@@ -690,7 +746,7 @@ class _AdminVerificacionPagosScreenState
                             : filtroEstado == 'aprobado'
                                 ? 'APROBADO'
                                 : 'RECHAZADO',
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
                           fontSize: 11,
@@ -701,23 +757,17 @@ class _AdminVerificacionPagosScreenState
                     const SizedBox(width: 12),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
+                          horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
                         color: primaryBusBlue.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: primaryBusBlue.withOpacity(0.3),
-                        ),
+                        border:
+                            Border.all(color: primaryBusBlue.withOpacity(0.3)),
                       ),
                       child: Row(
                         children: [
-                          Icon(
-                            Icons.event_seat_rounded,
-                            size: 16,
-                            color: primaryBusBlue,
-                          ),
+                          Icon(Icons.event_seat_rounded,
+                              size: 16, color: primaryBusBlue),
                           const SizedBox(width: 6),
                           Text(
                             'Asiento ${data['asientos'][0]}',
@@ -763,35 +813,31 @@ class _AdminVerificacionPagosScreenState
             const SizedBox(height: 20),
             Divider(color: Colors.grey.shade200),
             const SizedBox(height: 16),
-
-            // Información del cliente
             _buildInfoSection(
               'Información del Cliente',
               Icons.person_outline,
               [
-                _buildInfoRow(
-                    Icons.badge_outlined, 'Nombre', data['nombreComprador']),
+                _buildInfoRow(Icons.badge_outlined, 'Nombre',
+                    data['nombreComprador'] ?? 'N/A'),
                 _buildInfoRow(Icons.credit_card_outlined, 'Cédula',
-                    data['cedulaComprador']),
+                    data['cedulaComprador'] ?? 'N/A'),
+                _buildInfoRow(Icons.phone_outlined, 'Celular',
+                    data['celularComprador'] ?? 'N/A'),
                 _buildInfoRow(
-                    Icons.phone_outlined, 'Celular', data['celularComprador']),
-                _buildInfoRow(Icons.email_outlined, 'Email', data['email']),
+                    Icons.email_outlined, 'Email', data['email'] ?? 'N/A'),
                 _buildInfoRow(Icons.location_on_outlined, 'Parada',
                     data['paradaNombre'] ?? 'N/A'),
               ],
             ),
-
             if (data['comprobanteUrl'] != null) ...[
               const SizedBox(height: 20),
               _buildComprobanteSection(data['comprobanteUrl']),
             ],
-
             if (filtroEstado == 'rechazado' &&
                 data['motivoRechazo'] != null) ...[
               const SizedBox(height: 20),
               _buildMotivoRechazo(data['motivoRechazo']),
             ],
-
             if (filtroEstado == 'pendiente_verificacion') ...[
               const SizedBox(height: 24),
               _buildActionButtons(doc, data),
@@ -960,7 +1006,7 @@ class _AdminVerificacionPagosScreenState
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
+                        children: const [
                           Icon(Icons.zoom_in, color: Colors.white, size: 18),
                           SizedBox(width: 8),
                           Text(
@@ -1052,23 +1098,18 @@ class _AdminVerificacionPagosScreenState
               side: BorderSide(color: accentRed, width: 2),
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
               elevation: 0,
             ),
             onPressed: () => _rechazarTransferencia(doc, data),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+              children: const [
                 Icon(Icons.close_rounded, size: 20),
                 SizedBox(width: 8),
-                Text(
-                  'Rechazar',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                Text('Rechazar',
+                    style:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
               ],
             ),
           ),
@@ -1081,24 +1122,19 @@ class _AdminVerificacionPagosScreenState
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
               elevation: 0,
               shadowColor: successGreen.withOpacity(0.4),
             ),
             onPressed: () => _aprobarTransferencia(doc, data),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+              children: const [
                 Icon(Icons.check_rounded, size: 20),
                 SizedBox(width: 8),
-                Text(
-                  'Aprobar',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                Text('Aprobar',
+                    style:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
               ],
             ),
           ),
@@ -1153,10 +1189,55 @@ class _AdminVerificacionPagosScreenState
     );
   }
 
-  // ==================== APROBAR CON CLOUD FUNCTION ====================
-  // ==================== AGREGAR ESTA IMPORTACIÓN AL INICIO DEL ARCHIVO ====================
+  // ==================== HELPER: stream de buses activos en ambas colecciones ====================
+  /// Emite una lista con los dos QuerySnapshot (uno por colección) cada vez
+  /// que cualquiera de las dos colecciones cambia. Se usa para saber qué
+  /// valores de lugar_salida tienen buses activos.
+  Stream<List<QuerySnapshot>> _streamLugaresConBusesActivos() {
+    final s1 = db
+        .collection('buses_tulcan_salida')
+        .where('activo', isEqualTo: true)
+        .snapshots();
+    final s2 = db
+        .collection('buses_la_esperanza_salida')
+        .where('activo', isEqualTo: true)
+        .snapshots();
 
-// ==================== APROBAR CON NOTIFICACIÓN PUSH ====================
+    QuerySnapshot? last1;
+    QuerySnapshot? last2;
+    final controller = StreamController<List<QuerySnapshot>>();
+
+    s1.listen((snap) {
+      last1 = snap;
+      if (last1 != null && last2 != null && !controller.isClosed) {
+        controller.add([last1!, last2!]);
+      }
+    }, onError: (_) {}, cancelOnError: false);
+
+    s2.listen((snap) {
+      last2 = snap;
+      if (last1 != null && last2 != null && !controller.isClosed) {
+        controller.add([last1!, last2!]);
+      }
+    }, onError: (_) {}, cancelOnError: false);
+
+    return controller.stream;
+  }
+
+  // ==================== HELPER: detecta en qué colección vive un bus ====================
+  /// Busca el documento del bus en ambas colecciones y devuelve
+  /// un par (colección, DocumentSnapshot). Si no lo encuentra en ninguna
+  /// lanza una excepción descriptiva.
+  Future<({String coleccion, DocumentSnapshot doc})> _getColeccionDelBus(
+      String busId) async {
+    for (final col in _coleccionesBuses) {
+      final snap = await db.collection(col).doc(busId).get();
+      if (snap.exists) return (coleccion: col, doc: snap);
+    }
+    throw Exception('Bus $busId no encontrado en ninguna colección.');
+  }
+
+  // ==================== APROBAR ====================
   Future<void> _aprobarTransferencia(
       DocumentSnapshot reserva, Map<String, dynamic> data) async {
     try {
@@ -1173,11 +1254,8 @@ class _AdminVerificacionPagosScreenState
                   color: successGreen.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  Icons.check_circle_outline,
-                  color: successGreen,
-                  size: 24,
-                ),
+                child: Icon(Icons.check_circle_outline,
+                    color: successGreen, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1218,15 +1296,13 @@ class _AdminVerificacionPagosScreenState
                       children: [
                         Text('Cliente:', style: TextStyle(color: textGray)),
                         Text(
-                          data['nombreComprador'],
+                          data['nombreComprador'] ?? 'N/A',
                           style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: darkNavy,
-                          ),
+                              fontWeight: FontWeight.w600, color: darkNavy),
                         ),
                       ],
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -1249,13 +1325,9 @@ class _AdminVerificacionPagosScreenState
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(
-                'Cancelar',
-                style: TextStyle(
-                  color: textGray,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              child: Text('Cancelar',
+                  style:
+                      TextStyle(color: textGray, fontWeight: FontWeight.w600)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -1264,14 +1336,11 @@ class _AdminVerificacionPagosScreenState
                 padding:
                     const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
+                    borderRadius: BorderRadius.circular(10)),
               ),
               onPressed: () => Navigator.pop(context, true),
-              child: const Text(
-                'Aprobar',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
+              child: const Text('Aprobar',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ],
         ),
@@ -1279,6 +1348,7 @@ class _AdminVerificacionPagosScreenState
 
       if (confirmar != true) return;
 
+      if (!mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -1286,9 +1356,7 @@ class _AdminVerificacionPagosScreenState
           child: Container(
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
+                color: Colors.white, borderRadius: BorderRadius.circular(16)),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1297,23 +1365,20 @@ class _AdminVerificacionPagosScreenState
                   strokeWidth: 3,
                 ),
                 const SizedBox(height: 20),
-                Text(
-                  'Procesando aprobación...',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: darkNavy,
-                  ),
-                ),
+                Text('Procesando aprobación...',
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: darkNavy)),
               ],
             ),
           ),
         ),
       );
 
-      final busDoc =
-          await db.collection(coleccionBuses).doc(data['busId']).get();
-      var busData = busDoc.data() as Map<String, dynamic>?;
+      final busResult = await _getColeccionDelBus(data['busId']);
+      final colBus = busResult.coleccion;
+      var busData = busResult.doc.data() as Map<String, dynamic>?;
 
       String numeroBus = busData?['numero']?.toString() ?? 'N/A';
       String horaSalida = busData?['horaSalida']?.toString() ??
@@ -1347,22 +1412,21 @@ class _AdminVerificacionPagosScreenState
       if (busData != null) {
         List<Map<String, dynamic>> asientos =
             List<Map<String, dynamic>>.from(busData['asientos'] ?? []);
-
         final index =
             asientos.indexWhere((a) => a['numero'] == data['asientos'][0]);
         if (index != -1) {
           asientos[index]['estado'] = 'pagado';
         }
-
-        await db.collection(coleccionBuses).doc(data['busId']).update({
-          'asientos': asientos,
-        });
+        await db
+            .collection(colBus)
+            .doc(data['busId'])
+            .update({'asientos': asientos});
       }
 
       final boletoUrl = await _generarYSubirBoleto(
           data, reserva.id, numeroBus, horaSalida, fechaSalida);
 
-      await db.collection('notificaciones').add({
+      final notif = {
         'userId': data['userId'],
         'email': data['email'],
         'tipo': 'compra_aprobada',
@@ -1390,46 +1454,17 @@ class _AdminVerificacionPagosScreenState
         'fecha': FieldValue.serverTimestamp(),
         'fechaAprobacion': FieldValue.serverTimestamp(),
         'aprobadoPor': 'admin',
-      });
+      };
 
-      await db.collection('historial').add({
-        'userId': data['userId'],
-        'email': data['email'],
-        'tipo': 'compra_aprobada',
-        'titulo': '✅ Pago Aprobado',
-        'mensaje':
-            'Tu pago ha sido aprobado. Asiento ${data['asientos'][0]} confirmado para el bus $numeroBus.',
-        'reservaId': reserva.id,
-        'busId': data['busId'],
-        'numeroBus': numeroBus,
-        'paradaNombre': data['paradaNombre'],
-        'origenNombre': lugarSalida,
-        'nombreComprador': data['nombreComprador'],
-        'cedulaComprador': data['cedulaComprador'],
-        'celularComprador': data['celularComprador'],
-        'metodoPago': data['metodoPago'] ?? 'transferencia',
-        'estado': 'aprobado',
-        'precio': data['total'],
-        'total': data['total'],
-        'asiento': data['asientos'][0],
-        'asientos': data['asientos'],
-        'fechaSalida': fechaSalida,
-        'horaSalida': horaSalida,
-        'boletoUrl': boletoUrl,
-        'leida': false,
-        'fecha': FieldValue.serverTimestamp(),
-        'fechaAprobacion': FieldValue.serverTimestamp(),
-        'aprobadoPor': 'admin',
-      });
+      await db.collection('notificaciones').add(notif);
+      await db.collection('historial').add(notif);
 
-      // 🆕 ==================== ENVIAR NOTIFICACIÓN PUSH ====================
       await _enviarNotificacionPush(
         userId: data['userId'],
         titulo: '✅ Pago Aprobado',
         mensaje:
             'Tu pago ha sido aprobado. Asiento ${data['asientos'][0]} confirmado para el bus $numeroBus.',
       );
-      // ====================================================================
 
       if (!mounted) return;
       Navigator.pop(context);
@@ -1437,7 +1472,7 @@ class _AdminVerificacionPagosScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
-            children: [
+            children: const [
               Icon(Icons.check_circle_outline, color: Colors.white),
               SizedBox(width: 12),
               Text('Transferencia aprobada y notificación enviada'),
@@ -1465,7 +1500,7 @@ class _AdminVerificacionPagosScreenState
     }
   }
 
-// ==================== RECHAZAR CON NOTIFICACIÓN PUSH ====================
+  // ==================== RECHAZAR ====================
   Future<void> _rechazarTransferencia(
       DocumentSnapshot reserva, Map<String, dynamic> data) async {
     String? motivo = await showDialog<String>(
@@ -1483,11 +1518,7 @@ class _AdminVerificacionPagosScreenState
                   color: accentRed.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  Icons.cancel_outlined,
-                  color: accentRed,
-                  size: 24,
-                ),
+                child: Icon(Icons.cancel_outlined, color: accentRed, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1506,13 +1537,9 @@ class _AdminVerificacionPagosScreenState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '¿Por qué se rechaza este comprobante?',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: darkNavy,
-                ),
-              ),
+              Text('¿Por qué se rechaza este comprobante?',
+                  style:
+                      TextStyle(fontWeight: FontWeight.w600, color: darkNavy)),
               const SizedBox(height: 16),
               TextField(
                 controller: motivoController,
@@ -1537,13 +1564,9 @@ class _AdminVerificacionPagosScreenState
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Cancelar',
-                style: TextStyle(
-                  color: textGray,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              child: Text('Cancelar',
+                  style:
+                      TextStyle(color: textGray, fontWeight: FontWeight.w600)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -1552,14 +1575,11 @@ class _AdminVerificacionPagosScreenState
                 padding:
                     const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
+                    borderRadius: BorderRadius.circular(10)),
               ),
               onPressed: () => Navigator.pop(context, motivoController.text),
-              child: const Text(
-                'Rechazar',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
+              child: const Text('Rechazar',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ],
         );
@@ -1569,6 +1589,7 @@ class _AdminVerificacionPagosScreenState
     if (motivo == null || motivo.isEmpty) return;
 
     try {
+      if (!mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -1576,9 +1597,7 @@ class _AdminVerificacionPagosScreenState
           child: Container(
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
+                color: Colors.white, borderRadius: BorderRadius.circular(16)),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1587,23 +1606,20 @@ class _AdminVerificacionPagosScreenState
                   strokeWidth: 3,
                 ),
                 const SizedBox(height: 20),
-                Text(
-                  'Procesando rechazo...',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: darkNavy,
-                  ),
-                ),
+                Text('Procesando rechazo...',
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: darkNavy)),
               ],
             ),
           ),
         ),
       );
 
-      final busDoc =
-          await db.collection(coleccionBuses).doc(data['busId']).get();
-      var busData = busDoc.data() as Map<String, dynamic>?;
+      final busResult2 = await _getColeccionDelBus(data['busId']);
+      final colBus2 = busResult2.coleccion;
+      var busData = busResult2.doc.data() as Map<String, dynamic>?;
 
       String numeroBus = busData?['numero']?.toString() ?? 'N/A';
       String lugarSalida = busData?['lugar_salida']?.toString() ?? 'N/A';
@@ -1623,7 +1639,6 @@ class _AdminVerificacionPagosScreenState
       if (busData != null) {
         List<Map<String, dynamic>> asientos =
             List<Map<String, dynamic>>.from(busData['asientos'] ?? []);
-
         final index =
             asientos.indexWhere((a) => a['numero'] == data['asientos'][0]);
         if (index != -1) {
@@ -1632,13 +1647,13 @@ class _AdminVerificacionPagosScreenState
             'estado': 'disponible',
           };
         }
-
-        await db.collection(coleccionBuses).doc(data['busId']).update({
-          'asientos': asientos,
-        });
+        await db
+            .collection(colBus2)
+            .doc(data['busId'])
+            .update({'asientos': asientos});
       }
 
-      await db.collection('notificaciones').add({
+      final notif = {
         'userId': data['userId'],
         'email': data['email'],
         'tipo': 'compra_rechazada',
@@ -1664,44 +1679,17 @@ class _AdminVerificacionPagosScreenState
         'fecha': FieldValue.serverTimestamp(),
         'fechaRechazo': FieldValue.serverTimestamp(),
         'rechazadoPor': 'admin',
-      });
+      };
 
-      await db.collection('historial').add({
-        'userId': data['userId'],
-        'email': data['email'],
-        'tipo': 'compra_rechazada',
-        'titulo': '❌ Pago Rechazado',
-        'mensaje':
-            'Tu pago ha sido rechazado. Asiento ${data['asientos'][0]} del bus $numeroBus. Motivo: $motivo',
-        'motivoRechazo': motivo,
-        'reservaId': reserva.id,
-        'busId': data['busId'],
-        'numeroBus': numeroBus,
-        'paradaNombre': data['paradaNombre'],
-        'origenNombre': lugarSalida,
-        'nombreComprador': data['nombreComprador'],
-        'cedulaComprador': data['cedulaComprador'],
-        'celularComprador': data['celularComprador'],
-        'metodoPago': data['metodoPago'] ?? 'transferencia',
-        'estado': 'rechazado',
-        'precio': data['total'],
-        'total': data['total'],
-        'asiento': data['asientos'][0],
-        'asientos': data['asientos'],
-        'leida': false,
-        'fecha': FieldValue.serverTimestamp(),
-        'fechaRechazo': FieldValue.serverTimestamp(),
-        'rechazadoPor': 'admin',
-      });
+      await db.collection('notificaciones').add(notif);
+      await db.collection('historial').add(notif);
 
-      // 🆕 ==================== ENVIAR NOTIFICACIÓN PUSH ====================
       await _enviarNotificacionPush(
         userId: data['userId'],
         titulo: '❌ Pago Rechazado',
         mensaje:
             'Tu pago ha sido rechazado. Asiento ${data['asientos'][0]} del bus $numeroBus. Motivo: $motivo',
       );
-      // ====================================================================
 
       if (!mounted) return;
       Navigator.pop(context);
@@ -1709,7 +1697,7 @@ class _AdminVerificacionPagosScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
-            children: [
+            children: const [
               Icon(Icons.info_outline, color: Colors.white),
               SizedBox(width: 12),
               Text('Transferencia rechazada y notificación enviada'),
@@ -1737,20 +1725,15 @@ class _AdminVerificacionPagosScreenState
     }
   }
 
-// 🆕 ==================== FUNCIÓN PARA ENVIAR NOTIFICACIÓN PUSH ====================
+  // ==================== NOTIFICACIÓN PUSH ====================
   Future<void> _enviarNotificacionPush({
     required String userId,
     required String titulo,
     required String mensaje,
   }) async {
     try {
-      // ✅ SOLO el dominio base
       const String baseUrl = 'https://notificaciones-1hoa.onrender.com';
-
-      // ✅ Endpoint correcto (tal como está en Flask)
-      final Uri url = Uri.parse(
-        '$baseUrl/api/notifications/send-to-user',
-      );
+      final Uri url = Uri.parse('$baseUrl/api/notifications/send-to-user');
 
       final response = await http.post(
         url,
@@ -1763,18 +1746,15 @@ class _AdminVerificacionPagosScreenState
       );
 
       if (response.statusCode == 200) {
-        print('✅ Notificación push enviada correctamente');
-        print('📱 Respuesta: ${response.body}');
+        debugPrint('✅ Notificación push enviada correctamente');
       } else {
-        print('⚠️ Error al enviar notificación push: ${response.statusCode}');
-        print('📱 Respuesta: ${response.body}');
+        debugPrint(
+            '⚠️ Error al enviar notificación push: ${response.statusCode}');
       }
     } catch (e) {
-      print('❌ Error al enviar notificación push: $e');
+      debugPrint('❌ Error al enviar notificación push: $e');
     }
   }
-
-  // ==================== RECHAZAR CON CLOUD FUNCTION ====================
 
   // ==================== GENERAR Y SUBIR BOLETO ====================
   Future<String> _generarYSubirBoleto(
@@ -1819,9 +1799,7 @@ class _AdminVerificacionPagosScreenState
                           pw.Text(
                             'Bus $numeroBus',
                             style: const pw.TextStyle(
-                              color: PdfColors.white,
-                              fontSize: 16,
-                            ),
+                                color: PdfColors.white, fontSize: 16),
                           ),
                         ],
                       ),
@@ -1920,7 +1898,7 @@ class _AdminVerificacionPagosScreenState
                         ),
                       ),
                       pw.Text(
-                        "\${(data['total'] ?? 0).toStringAsFixed(2)}",
+                        '\$${(data['total'] ?? 0).toStringAsFixed(2)}',
                         style: pw.TextStyle(
                           fontSize: 24,
                           fontWeight: pw.FontWeight.bold,
@@ -1942,9 +1920,7 @@ class _AdminVerificacionPagosScreenState
         FirebaseStorage.instance.ref().child('boletos').child('$reservaId.pdf');
 
     await storageRef.putData(pdfBytes);
-    final boletoUrl = await storageRef.getDownloadURL();
-
-    return boletoUrl;
+    return await storageRef.getDownloadURL();
   }
 
   pw.Widget _buildPdfInfoRow(String label, String value) {
@@ -1955,19 +1931,12 @@ class _AdminVerificacionPagosScreenState
         children: [
           pw.SizedBox(
             width: 120,
-            child: pw.Text(
-              label,
-              style: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold,
-                fontSize: 12,
-              ),
-            ),
+            child: pw.Text(label,
+                style:
+                    pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
           ),
           pw.Expanded(
-            child: pw.Text(
-              value,
-              style: const pw.TextStyle(fontSize: 12),
-            ),
+            child: pw.Text(value, style: const pw.TextStyle(fontSize: 12)),
           ),
         ],
       ),
@@ -1981,6 +1950,7 @@ class _AdminVerificacionPagosScreenState
     const int rojoDoramald = 0xFF940016;
 
     try {
+      if (!mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -1988,9 +1958,7 @@ class _AdminVerificacionPagosScreenState
           child: Container(
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
+                color: Colors.white, borderRadius: BorderRadius.circular(16)),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1999,24 +1967,19 @@ class _AdminVerificacionPagosScreenState
                   strokeWidth: 3,
                 ),
                 const SizedBox(height: 20),
-                Text(
-                  'Generando reporte...',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: darkNavy,
-                  ),
-                ),
+                Text('Generando reporte...',
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: darkNavy)),
               ],
             ),
           ),
         ),
       );
 
-      final busDoc =
-          await db.collection(coleccionBuses).doc(busSeleccionado!).get();
-      final busData = busDoc.data() as Map<String, dynamic>?;
-
+      final busResult3 = await _getColeccionDelBus(busSeleccionado!);
+      final busData = busResult3.doc.data() as Map<String, dynamic>?;
       final String numeroBus = busData?['numero']?.toString() ?? 'N/A';
 
       final reservasAprobadas = await db
@@ -2044,9 +2007,7 @@ class _AdminVerificacionPagosScreenState
                 color: PdfColors.grey100,
                 border: pw.Border(
                   left: pw.BorderSide(
-                    color: PdfColor.fromInt(rojoDoramald),
-                    width: 4,
-                  ),
+                      color: PdfColor.fromInt(rojoDoramald), width: 4),
                 ),
               ),
               child: pw.Column(
@@ -2104,8 +2065,7 @@ class _AdminVerificacionPagosScreenState
               padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(
                 gradient: const pw.LinearGradient(
-                  colors: [PdfColors.green700, PdfColors.green600],
-                ),
+                    colors: [PdfColors.green700, PdfColors.green600]),
                 borderRadius: pw.BorderRadius.circular(10),
               ),
               child: pw.Row(
@@ -2145,10 +2105,7 @@ class _AdminVerificacionPagosScreenState
                   ),
                   pw.Text(
                     'www.transdoramald.com | contacto@transdoramald.com',
-                    style: pw.TextStyle(
-                      fontSize: 9,
-                      color: PdfColors.grey600,
-                    ),
+                    style: pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
                   ),
                 ],
               ),
@@ -2203,9 +2160,7 @@ class _AdminVerificacionPagosScreenState
         ),
         ...reservas.asMap().entries.map((entry) {
           int index = entry.key;
-          var doc = entry.value;
-          var data = doc.data() as Map<String, dynamic>;
-
+          var data = entry.value.data() as Map<String, dynamic>;
           return pw.TableRow(
             decoration: pw.BoxDecoration(
               color: index % 2 == 0 ? PdfColors.grey50 : PdfColors.white,
@@ -2223,7 +2178,7 @@ class _AdminVerificacionPagosScreenState
               ),
             ],
           );
-        }).toList(),
+        }),
       ],
     );
   }
@@ -2234,10 +2189,9 @@ class _AdminVerificacionPagosScreenState
       child: pw.Text(
         text,
         style: pw.TextStyle(
-          color: PdfColors.white,
-          fontSize: 10,
-          fontWeight: pw.FontWeight.bold,
-        ),
+            color: PdfColors.white,
+            fontSize: 10,
+            fontWeight: pw.FontWeight.bold),
         textAlign: pw.TextAlign.center,
       ),
     );
@@ -2258,4 +2212,164 @@ class _AdminVerificacionPagosScreenState
       ),
     );
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Widget independiente que consulta AMBAS colecciones en paralelo,
+// filtra por  lugar_salida == lugarValor  Y  activo == true,
+// y construye el dropdown con los resultados combinados.
+// ═══════════════════════════════════════════════════════════════════════════
+class _BusActivoSelector extends StatelessWidget {
+  final FirebaseFirestore db;
+  final String lugarValor;
+  final List<String> colecciones;
+  final String? busSeleccionado;
+  final Color primaryColor;
+  final Color darkNavy;
+  final Color textGray;
+  final Color warningYellow;
+  final ValueChanged<String?> onChanged;
+
+  // Callbacks para reutilizar los builders del padre
+  final Widget Function({
+    required String label,
+    required IconData icon,
+    required String? value,
+    required String hint,
+    required List<DropdownMenuItem<String>> items,
+    required void Function(String?) onChanged,
+  }) buildSelector;
+
+  final Widget Function({
+    required IconData icon,
+    required String mensaje,
+    required Color color,
+  }) buildBanner;
+
+  const _BusActivoSelector({
+    required this.db,
+    required this.lugarValor,
+    required this.colecciones,
+    required this.busSeleccionado,
+    required this.primaryColor,
+    required this.darkNavy,
+    required this.textGray,
+    required this.warningYellow,
+    required this.onChanged,
+    required this.buildSelector,
+    required this.buildBanner,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Lanzamos una query por cada colección y las combinamos con StreamBuilder anidados
+    return StreamBuilder<List<_BusItem>>(
+      stream: _streamBusesActivos(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+              strokeWidth: 3,
+            ),
+          );
+        }
+
+        final buses = snapshot.data ?? [];
+
+        if (buses.isEmpty) {
+          return buildBanner(
+            icon: Icons.directions_bus_outlined,
+            mensaje: 'No hay buses activos con lugar de salida "$lugarValor".',
+            color: warningYellow,
+          );
+        }
+
+        final items = <DropdownMenuItem<String>>[
+          const DropdownMenuItem<String>(
+            value: null,
+            child: Text('Todos los buses'),
+          ),
+          ...buses.map((bus) {
+            final label = (bus.fecha.isNotEmpty || bus.hora.isNotEmpty)
+                ? 'Bus ${bus.numero}  •  ${bus.fecha} ${bus.hora}'.trim()
+                : 'Bus ${bus.numero}';
+            return DropdownMenuItem<String>(
+              value: bus.docId,
+              child: Text(label),
+            );
+          }),
+        ];
+
+        return buildSelector(
+          label: 'Seleccionar Bus',
+          icon: Icons.directions_bus_rounded,
+          value: busSeleccionado,
+          hint: 'Todos los buses activos',
+          items: items,
+          onChanged: onChanged,
+        );
+      },
+    );
+  }
+
+  /// Combina los streams de ambas colecciones filtrando por
+  /// lugar_salida == lugarValor  Y  activo == true
+  Stream<List<_BusItem>> _streamBusesActivos() {
+    final List<Stream<List<_BusItem>>> streams = colecciones.map((col) {
+      return db
+          .collection(col)
+          .where('lugar_salida', isEqualTo: lugarValor)
+          .where('activo', isEqualTo: true)
+          .snapshots()
+          .map((snap) => snap.docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return _BusItem(
+                  docId: doc.id,
+                  numero: data['numero']?.toString() ?? doc.id,
+                  fecha: data['fechaSalida']?.toString() ??
+                      data['fecha_salida']?.toString() ??
+                      '',
+                  hora: data['horaSalida']?.toString() ??
+                      data['hora_salida']?.toString() ??
+                      '',
+                );
+              }).toList());
+    }).toList();
+
+    // Mantenemos la última lista de cada colección y re-emitimos combinada
+    final results = List<List<_BusItem>>.generate(streams.length, (_) => []);
+    final controller = StreamController<List<_BusItem>>();
+
+    for (int i = 0; i < streams.length; i++) {
+      final idx = i;
+      streams[idx].listen(
+        (list) {
+          results[idx] = list;
+          if (!controller.isClosed) {
+            controller.add(results.expand((e) => e).toList());
+          }
+        },
+        onError: (_) {},
+        cancelOnError: false,
+      );
+    }
+
+    return controller.stream;
+  }
+}
+
+/// Modelo simple para un bus activo encontrado en cualquier colección
+class _BusItem {
+  final String docId;
+  final String numero;
+  final String fecha;
+  final String hora;
+
+  const _BusItem({
+    required this.docId,
+    required this.numero,
+    required this.fecha,
+    required this.hora,
+  });
 }
